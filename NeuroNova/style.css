@@ -1,0 +1,250 @@
+/* style.css — Neuronova frontend theme (dark neon / glassmorphism)
+   Loaded once by inject_global_css() in app.py via st.markdown(<style>...). */
+
+@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Exo+2:wght@400;500;600;700&display=swap');
+
+:root {
+    --ss-primary: #00e5ff;
+    --ss-primary-dark: #0aa7c2;
+    --ss-primary-light: #7cf3ff;
+    --ss-secondary: #b869ff;
+    --ss-secondary-dark: #8a3ffc;
+    --ss-accent: #ff2fa0;
+    --ss-accent-dark: #ff5fb8;
+    --ss-gold: #ffcc33;
+    --ss-bg: #05070f;
+    --ss-bg-alt: #0b1024;
+    --ss-card: rgba(19, 26, 48, 0.72);
+    --ss-text: #e7f1ff;
+    --ss-text-muted: #93a4c9;
+    --ss-risk-high: #ff3b5c;
+    --ss-risk-medium: #ffb400;
+    --ss-risk-low: #24f2a0;
+}
+
+html { font-size: 19px; }
+html, body, [class*="css"] {
+    font-family: 'Exo 2', sans-serif;
+    color: var(--ss-text);
+    line-height: 1.6;
+}
+p, li, span, label { line-height: 1.6; }
+
+.stApp {
+    background:
+        radial-gradient(circle at 6% 0%, rgba(0,229,255,0.16), transparent 34%),
+        radial-gradient(circle at 96% 8%, rgba(255,47,160,0.14), transparent 38%),
+        radial-gradient(circle at 15% 88%, rgba(184,105,255,0.16), transparent 36%),
+        radial-gradient(circle at 90% 92%, rgba(255,204,51,0.08), transparent 34%),
+        repeating-linear-gradient(0deg, rgba(124,243,255,0.035) 0px, rgba(124,243,255,0.035) 1px, transparent 1px, transparent 48px),
+        repeating-linear-gradient(90deg, rgba(124,243,255,0.035) 0px, rgba(124,243,255,0.035) 1px, transparent 1px, transparent 48px),
+        linear-gradient(180deg, var(--ss-bg) 0%, var(--ss-bg-alt) 100%);
+    background-attachment: fixed;
+}
+
+/* Safety net: every screen in this app now has a dark background, so nothing should
+   ever render dark-on-dark. Low-specificity catch-all — anything more specific
+   below (buttons, chips, muted captions) still wins the cascade and keeps its own color. */
+.stApp * { color: var(--ss-text); }
+
+/* Every rerun re-mounts the main block — give it a soft entrance instead of a hard cut. */
+@media (prefers-reduced-motion: no-preference) {
+    .main .block-container {
+        animation: ss-enter 0.45s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+}
+@keyframes ss-enter {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--ss-primary-dark); border-radius: 999px; }
+::-webkit-scrollbar-thumb:hover { background: var(--ss-primary); }
+
+.ss-badge {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 3.1rem; height: 3.1rem; border-radius: 16px;
+    font-size: 1.5rem; flex: none;
+    box-shadow: 0 0 18px rgba(0,229,255,0.35), 0 6px 14px rgba(0,0,0,0.4);
+}
+.ss-badge-sm { width: 2.4rem; height: 2.4rem; border-radius: 12px; font-size: 1.15rem; }
+
+.ss-avatar {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 2.6rem; height: 2.6rem; border-radius: 999px; flex: none;
+    font-family: 'Exo 2', sans-serif; font-weight: 700; font-size: 1rem;
+    color: var(--ss-primary-light);
+    background: linear-gradient(135deg, #101a33 0%, #1c1240 100%);
+    border: 2px solid var(--ss-primary);
+    box-shadow: 0 0 14px rgba(0,229,255,0.4);
+}
+
+/* Sidebar: dark glass panel with a neon edge. */
+section[data-testid="stSidebar"] {
+    background: linear-gradient(180deg, rgba(11,16,36,0.96), rgba(5,7,15,0.98));
+    border-right: 1px solid rgba(0,229,255,0.25);
+    box-shadow: 4px 0 24px rgba(0,229,255,0.06);
+}
+section[data-testid="stSidebar"] h1, section[data-testid="stSidebar"] h2,
+section[data-testid="stSidebar"] h3 {
+    color: var(--ss-primary-light) !important;
+}
+section[data-testid="stSidebar"] p, section[data-testid="stSidebar"] label,
+section[data-testid="stSidebar"] span {
+    color: var(--ss-text) !important;
+    font-weight: 500;
+}
+
+h1, h2, h3 { font-family: 'Orbitron', sans-serif; color: var(--ss-primary-light); font-weight: 700; letter-spacing: 0.02em; }
+h1 { font-size: 2.1rem; text-shadow: 0 0 18px rgba(0,229,255,0.35); }
+h2 { font-size: 1.6rem; }
+h3 { font-size: 1.3rem; }
+
+/* Buttons: neon HUD outline on a dark glass fill. No dark-on-dark anywhere.
+   Covers plain buttons AND form-submit buttons, which Streamlit renders separately. */
+div[data-testid="stButton"] button, div[data-testid="stFormSubmitButton"] button {
+    background: rgba(0,229,255,0.07);
+    color: var(--ss-primary-light);
+    border: 2px solid var(--ss-primary);
+    border-radius: 12px;
+    padding: 0.85rem 1.6rem;
+    font-family: 'Exo 2', sans-serif;
+    font-weight: 700;
+    font-size: 1.05rem;
+    box-shadow: 0 0 16px rgba(0,229,255,0.22), inset 0 0 12px rgba(0,229,255,0.05);
+    transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+}
+div[data-testid="stButton"] button p, div[data-testid="stFormSubmitButton"] button p {
+    font-weight: 700; font-size: 1.05rem; color: var(--ss-primary-light);
+}
+div[data-testid="stButton"] button:hover, div[data-testid="stFormSubmitButton"] button:hover {
+    background: rgba(0,229,255,0.16);
+    transform: translateY(-2px);
+    box-shadow: 0 0 26px rgba(0,229,255,0.45), inset 0 0 16px rgba(0,229,255,0.1);
+}
+div[data-testid="stButton"] button:disabled, div[data-testid="stFormSubmitButton"] button:disabled {
+    background: rgba(255,255,255,0.03);
+    color: #4a5578;
+    border-color: #232c47;
+    box-shadow: none;
+    transform: none;
+}
+
+/* Dropdown popovers (select widgets) render at document root — force readable text,
+   dark background, even on the highlighted/selected option. */
+ul[role="listbox"] {
+    background: #0d1330 !important;
+    border: 1px solid rgba(0,229,255,0.3) !important;
+}
+ul[role="listbox"] li, ul[role="listbox"] li * {
+    color: var(--ss-text) !important;
+}
+ul[role="listbox"] li[aria-selected="true"] {
+    background: rgba(0,229,255,0.14) !important;
+    color: var(--ss-primary-light) !important;
+}
+ul[role="listbox"] li[aria-selected="true"] * { color: var(--ss-primary-light) !important; }
+
+/* Toasts (st.toast) get the same dark-glass neon treatment. */
+div[data-testid="stToast"] {
+    background: var(--ss-card) !important;
+    border: 1.5px solid var(--ss-primary);
+    box-shadow: 0 0 20px rgba(0,229,255,0.25);
+}
+div[data-testid="stToast"] * { color: var(--ss-text) !important; }
+
+div[data-testid="stMetric"], div[data-testid="stVerticalBlockBorderWrapper"] {
+    background: var(--ss-card);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    border-radius: 16px;
+    box-shadow: 0 0 22px rgba(0,229,255,0.08), 0 6px 18px rgba(0,0,0,0.35);
+    border: 1px solid rgba(0,229,255,0.18);
+}
+div[data-testid="stMetric"] { padding: 0.9rem 1.1rem; }
+div[data-testid="stMetric"] label, div[data-testid="stMetricLabel"] { color: var(--ss-text-muted) !important; }
+div[data-testid="stMetricValue"] { color: var(--ss-primary-light) !important; text-shadow: 0 0 12px rgba(0,229,255,0.4); }
+
+div[data-testid="stExpander"] {
+    background: var(--ss-card);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    border-radius: 14px;
+    border: 1px solid rgba(0,229,255,0.22);
+}
+
+div[data-testid="stAlert"] p { font-size: 1.02rem; line-height: 1.6; }
+
+/* ------------------------------------------------------- landing page only -- */
+
+.ss-hero {
+    position: relative;
+    overflow: hidden;
+    background:
+        radial-gradient(circle at 90% -10%, rgba(255,47,160,0.28), transparent 45%),
+        radial-gradient(circle at -10% 110%, rgba(0,229,255,0.24), transparent 45%),
+        linear-gradient(135deg, #0d1330 0%, #150c2e 100%);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    border: 2px solid rgba(0,229,255,0.25);
+    border-radius: 28px;
+    padding: 3.2rem 2rem 2.6rem;
+    text-align: center;
+    color: var(--ss-text);
+    box-shadow: 0 0 50px rgba(0,229,255,0.14), 0 18px 40px rgba(0,0,0,0.4);
+}
+.ss-diya {
+    font-size: 4.4rem;
+    display: inline-block;
+    animation: ss-flicker 2.4s ease-in-out infinite;
+    filter: drop-shadow(0 0 20px rgba(0,229,255,0.65));
+}
+@keyframes ss-flicker {
+    0%, 100% { transform: scale(1) translateY(0); opacity: 1; }
+    50% { transform: scale(1.08) translateY(-3px); opacity: 0.88; }
+}
+.ss-hero h1 {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 2.8rem;
+    margin: 0.6rem 0 0.3rem;
+    letter-spacing: 1px;
+    color: var(--ss-primary-light);
+    text-shadow: 0 0 24px rgba(0,229,255,0.5);
+}
+.ss-hero p.ss-tagline {
+    font-family: 'Exo 2', sans-serif;
+    font-size: 1.15rem;
+    color: var(--ss-text);
+    margin: 0;
+    font-weight: 500;
+}
+.ss-chips { margin-top: 1.5rem; display: flex; flex-wrap: wrap; justify-content: center; gap: 0.5rem; }
+.ss-chip {
+    background: rgba(0,229,255,0.08);
+    border: 1.5px solid var(--ss-primary);
+    color: var(--ss-primary-light);
+    border-radius: 999px;
+    padding: 0.35rem 1rem;
+    font-size: 0.88rem;
+    font-weight: 600;
+    font-family: 'Exo 2', sans-serif;
+}
+.ss-features { display: flex; gap: 1rem; margin-top: 1.8rem; flex-wrap: wrap; }
+.ss-card {
+    flex: 1 1 150px;
+    background: var(--ss-card);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    border-radius: 18px;
+    padding: 1.3rem 1rem;
+    text-align: center;
+    box-shadow: 0 8px 20px rgba(0,229,255,0.1);
+    border: 1px solid rgba(0,229,255,0.18);
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+.ss-card:hover { transform: translateY(-3px); box-shadow: 0 0 26px rgba(0,229,255,0.3); }
+.ss-card .ss-icon { font-size: 2rem; }
+.ss-card h4 { font-family: 'Exo 2', sans-serif; margin: 0.4rem 0 0.2rem; color: var(--ss-primary-light); font-size: 1rem; }
+.ss-card p { margin: 0; font-size: 0.82rem; color: var(--ss-text-muted); }
