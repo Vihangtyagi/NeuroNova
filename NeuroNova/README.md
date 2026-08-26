@@ -1,4 +1,4 @@
-# Smriti Sathi — SIH26003
+# Neuronova — SIH26003
 
 **AI-Based Cognitive Gaming and Memory Assistance Platform for Elderly
 Dementia Patients in the North Eastern Region (NER)**
@@ -28,7 +28,7 @@ caregiver/ASHA-worker view.
 - **Bilingual UI toggle** (English / Assamese) as a proof-of-concept for
   the multi-language requirement across NER states.
 - **SQLite persistence** — reminders, family members, and every game
-  score genuinely persist across restarts (`smriti.db`).
+  score genuinely persist across restarts (`NeuroNova.db`).
 
 ## Run it
 
@@ -50,12 +50,14 @@ The database seeds itself automatically on first run with 3 demo
 patients, their families, today's reminders, and 21 days of synthetic
 game-history (deliberately shaped so one patient trends down, one is
 stable, one trends up — so the AI dashboard has something real to show
-on day one). Delete `smriti.db` any time to reseed from scratch.
+on day one). Delete `NeuroNova.db` any time to reseed from scratch.
 
 ## Project structure
 
 ```
-app.py            Streamlit UI — patient games + caregiver dashboard
+app.py            Entry point — wires up the database and launches frontend.py
+frontend.py       Streamlit UI — every screen: patient games + caregiver dashboard
+style.css         Dark neon/glassmorphism theme, loaded by frontend.py
 db.py             SQLite schema, seed data, CRUD helpers
 cognitive_ai.py   Trend-detection / risk-classification engine
 voice.py          Offline text-to-speech wrapper (espeak-ng)

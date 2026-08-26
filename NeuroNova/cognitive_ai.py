@@ -1,5 +1,5 @@
 """
-cognitive_ai.py — the "AI" behind Smriti Sathi's caregiver alerts.
+cognitive_ai.py — the "AI" behind Neuronova's caregiver alerts.
 
 This is intentionally a transparent, explainable model rather than a black
 box: it fits a linear trend to a patient's daily average game score over

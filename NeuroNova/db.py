@@ -1,7 +1,7 @@
 """
-db.py — SQLite data layer for Smriti Sathi
+db.py — SQLite data layer for Neuronova
 Handles schema creation, demo-data seeding, and all CRUD helpers
-used by the Streamlit app (app.py) and the AI engine (cognitive_ai.py).
+used by the Streamlit UI (frontend.py) and the AI engine (cognitive_ai.py).
 """
 
 import sqlite3
@@ -9,7 +9,7 @@ import os
 import random
 from datetime import datetime, timedelta
 
-DB_PATH = os.path.join(os.path.dirname(__file__), "smriti.db")
+DB_PATH = os.path.join(os.path.dirname(__file__), "NeuroNova.db")
 
 # Languages supported for a patient's preferred language, keyed by the code
 # stored in patients.language. Native names included for display purposes.
