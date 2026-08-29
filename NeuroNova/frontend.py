@@ -8,6 +8,7 @@ app.py is just the entry point that wires the database up and calls run().
 
 import os
 import random
+from datetime import datetime
 import streamlit as st
 import pandas as pd
 
@@ -21,28 +22,45 @@ import voice
 # them as placeholders to be reviewed before real patient-facing use.
 LABELS = {
     "en": {"app": "Neuronova", "sub": "Memory Companion · North Eastern Region",
-           "greeting": "Good Morning", "games": "Play Memory Games", "box": "My Memory Box",
-           "reminders": "Today's Reminders", "call": "Call Family"},
+           "greeting": {"morning": "Good Morning", "afternoon": "Good Afternoon",
+                        "evening": "Good Evening", "night": "Good Night"},
+           "games": "Play Memory Games", "box": "My Memory Box",
+           "reminders": "Today's Reminders"},
     "as": {"app": "Neuronova", "sub": "মেমোৰি কম্পেনিয়ন · উত্তৰ পূৰ্বাঞ্চল",
-           "greeting": "শুভ প্ৰভাত", "games": "স্মৃতি খেল", "box": "মোৰ স্মৃতি বাকচ",
-           "reminders": "আজিৰ মনত পেলোৱা", "call": "পৰিয়ালক কল কৰক"},
+           "greeting": {"morning": "শুভ প্ৰভাত", "afternoon": "শুভ অপৰাহ্ণ",
+                        "evening": "শুভ সন্ধিয়া", "night": "শুভ ৰাতি"},
+           "games": "স্মৃতি খেল", "box": "মোৰ স্মৃতি বাকচ",
+           "reminders": "আজিৰ মনত পেলোৱা"},
     "kha": {"app": "Neuronova", "sub": "Nongïarap Kynmaw · Ri Khasi–Jaiñtia",
-            "greeting": "Mih Shaphrang", "games": "Khena Kynmaw", "box": "Ka Bokso Kynmaw Jong Nga",
-            "reminders": "Ka Kynmaw Mynta", "call": "Kyllum Ïing"},
+            "greeting": {"morning": "Mih Shaphrang", "afternoon": "Mih Sngiap",
+                         "evening": "Mih Mynstep", "night": "Mih Tarim"},
+            "games": "Khena Kynmaw", "box": "Ka Bokso Kynmaw Jong Nga",
+            "reminders": "Ka Kynmaw Mynta"},
     "brx": {"app": "Neuronova", "sub": "सोदोबनायाव फुंखा · बर'लैंड",
-            "greeting": "गुबुन सान", "games": "सोदोब आन्जोरनाय गेम", "box": "आं'नि सोदोब बाक्सा",
-            "reminders": "दिनैनि खोन्दोब", "call": "फिसाजोबो फोन"},
+            "greeting": {"morning": "गुबुन सान", "afternoon": "गुबुन मदैनि",
+                         "evening": "गुबुन बेला", "night": "गुबुन आबेन्दो"},
+            "games": "सोदोब आन्जोरनाय गेम", "box": "आं'नि सोदोब बाक्सा",
+            "reminders": "दिनैनि खोन्दोब"},
     "mni": {"app": "Neuronova", "sub": "মৈতৈলোন্ · মণিপুর",
-            "greeting": "নুংঙাইবা য়েংথোক্কী", "games": "নীংশিং খেল থাগৎপা", "box": "ঐগী নীংশিং বক্স",
-            "reminders": "ঙসিগী ৱারোল", "call": "ইমুং কল তৌবা"},
+            "greeting": {"morning": "নুংঙাইবা য়েংথোক্কী", "afternoon": "নুংঙাইবা নুমিৎ",
+                         "evening": "নুংঙাইবা নুংথিল", "night": "নুংঙাইবা অহিং"},
+            "games": "নীংশিং খেল থাগৎপা", "box": "ঐগী নীংশিং বক্স",
+            "reminders": "ঙসিগী ৱারোল"},
     "lus": {"app": "Neuronova", "sub": "Hriatna Ṭhian · Zoram",
-            "greeting": "Chibai", "games": "Hriatna Inen", "box": "Ka Hriatna Bâwm",
-            "reminders": "Tunlaia Hriattîrna", "call": "Chhungkaw Ko"},
+            "greeting": {"morning": "Chibai", "afternoon": "Chibai",
+                         "evening": "Chibai", "night": "Chibai"},
+            "games": "Hriatna Inen", "box": "Ka Hriatna Bâwm",
+            "reminders": "Tunlaia Hriattîrna"},
 }
 
 GAME_TYPES = {"memory_match": "Memory Match", "pattern_recall": "Pattern Recall", "family_match": "Who Is This?"}
-SYMBOLS = ["🍵", "🐘", "🛶", "🥁", "🌾", "🎭"]
-PADS = ["Tea Garden", "Muga Silk", "River Boat", "Bihu Drum"]
+SYMBOLS = ["🍵", "🐘", "🛶", "🥁", "🌾", "🎭", "🦚", "🌸"]
+PADS = ["Tea Garden", "Muga Silk", "River Boat", "Bihu Drum", "Bamboo Grove", "Hornbill Dance"]
+
+DIFFICULTIES = ["Easy", "Medium", "Hard"]
+MM_PAIRS = {"Easy": 3, "Medium": 6, "Hard": 8}
+PR_PADS = {"Easy": 2, "Medium": 4, "Hard": 6}
+FM_CHOICES = {"Easy": 2, "Medium": 3, "Hard": 4}
 
 ss = st.session_state
 
@@ -58,8 +76,48 @@ def L(key):
     return LABELS[ss.lang][key]
 
 
+def greeting_period():
+    hour = datetime.now().hour
+    if 5 <= hour < 12:
+        return "morning"
+    if 12 <= hour < 17:
+        return "afternoon"
+    if 17 <= hour < 21:
+        return "evening"
+    return "night"
+
+
+def time_greeting():
+    period = greeting_period()
+    emoji = {"morning": "☀️", "afternoon": "🌤️", "evening": "🌆", "night": "🌙"}[period]
+    return LABELS["en"]["greeting"][period], emoji
+
+
 def current_patient(patients):
     return next(p for p in patients if p["id"] == ss.patient_id)
+
+
+def adjust_difficulty(score):
+    """Auto-tune difficulty from a just-finished session's score (0-100 scale,
+    the same score already logged to game_scores for the caregiver dashboard).
+
+    Criterion: score >= 80 counts as "cleared easily" and steps up one level
+    (Easy -> Medium -> Hard); score <= 40 counts as "struggling" and steps
+    down one level. Anything in between (41-79) is a normal, appropriately
+    challenged session, so the level holds. Already-Hard sessions can't step
+    up further, and already-Easy sessions can't step down further.
+
+    Returns "up", "down", or None (no change) so callers can tell the patient
+    what happened and why.
+    """
+    idx = DIFFICULTIES.index(ss.difficulty)
+    if score >= 80 and idx < len(DIFFICULTIES) - 1:
+        ss.difficulty = DIFFICULTIES[idx + 1]
+        return "up"
+    if score <= 40 and idx > 0:
+        ss.difficulty = DIFFICULTIES[idx - 1]
+        return "down"
+    return None
 
 
 def speak_button(text, key):
@@ -109,7 +167,7 @@ def render_tile(emoji, badge_bg, title, subtitle, button_label, key, on_click_pa
             <div style="display:flex;align-items:center;gap:0.9rem;margin-bottom:0.7rem;">
                 {icon_badge_html(emoji, badge_bg)}
                 <div>
-                    <div style="font-weight:700;font-size:1.08rem;color:var(--ss-primary-light);">{title}</div>
+                    <div style="font-weight:700;font-size:1.08rem;color:var(--ss-primary-dark);">{title}</div>
                     <div style="font-size:0.85rem;color:var(--ss-text-muted);">{subtitle}</div>
                 </div>
             </div>
@@ -132,7 +190,7 @@ def render_risk_banner(risk, recommendation):
         f"""
         <div style="background:{bg};border-left:6px solid {color};border-radius:14px;
                     padding:1.1rem 1.3rem;display:flex;gap:0.9rem;align-items:flex-start;
-                    backdrop-filter:blur(14px);box-shadow:0 0 20px {color}33;margin-bottom:1rem;">
+                    backdrop-filter:blur(14px);box-shadow:0 3px 12px rgba(31,51,47,0.10);margin-bottom:1rem;">
             <div style="font-size:1.5rem;line-height:1;">{icon}</div>
             <div>
                 <div style="font-weight:700;color:{color};font-size:1.05rem;">Risk level: {risk}</div>
@@ -147,7 +205,7 @@ def render_risk_banner(risk, recommendation):
 def render_trend_pill(trend):
     tone = {
         "Improving": ("var(--ss-risk-low)", "rgba(36,242,160,0.12)", "📈"),
-        "Stable": ("var(--ss-primary)", "rgba(0,229,255,0.12)", "➖"),
+        "Stable": ("var(--ss-primary-dark)", "rgba(62,142,133,0.15)", "➖"),
         "Declining": ("var(--ss-risk-high)", "rgba(255,59,92,0.12)", "📉"),
     }
     color, bg, icon = tone.get(trend, ("var(--ss-text-muted)", "rgba(147,164,201,0.1)", "❔"))
@@ -166,27 +224,32 @@ def inject_global_css():
 
 
 def render_welcome():
-    st.write("")
+    greeting, emoji = time_greeting()
     st.write("")
     st.write("")
     _, mid, _ = st.columns([1, 2, 1])
     with mid:
         st.markdown(
-            """
-            <div style="background:var(--ss-card);border-radius:24px;padding:2.6rem 2rem;
-                        text-align:center;backdrop-filter:blur(14px);box-shadow:0 0 40px rgba(0,229,255,0.14);
-                        border:1px solid rgba(0,229,255,0.22);">
-                <div style="font-size:3rem;filter:drop-shadow(0 0 16px rgba(0,229,255,0.6));">🧠</div>
-                <h2 style="margin:0.6rem 0 0.3rem;color:var(--ss-primary-light);">Hi there 👋</h2>
-                <p style="color:var(--ss-text-muted);margin:0;">Welcome to Neuronova. Tap Enter when you're ready.</p>
+            f"""
+            <div class="ss-welcome-card">
+                <div class="ss-welcome-orb">{emoji}</div>
+                <h1>{greeting}</h1>
+                <p class="ss-welcome-sub">Welcome to Neuronova, your gentle memory companion.
+                    Tap below whenever you're ready to begin.</p>
+                <div class="ss-welcome-chips">
+                    <span class="ss-chip">🔒 Private &amp; secure</span>
+                    <span class="ss-chip">🌐 6 regional languages</span>
+                    <span class="ss-chip">💙 Made for elder care</span>
+                </div>
             </div>
             """,
             unsafe_allow_html=True,
         )
         st.write("")
-        if st.button("Enter", use_container_width=True):
+        if st.button("✨  Enter Neuronova", use_container_width=True):
             ss.page = "landing"
             st.rerun()
+        st.caption("SIH26003 — working prototype")
 
 
 def render_landing():
@@ -228,42 +291,79 @@ def render_landing():
     _, mid, _ = st.columns([1, 1.2, 1])
     with mid:
         if st.button("✨  Enter Neuronova", use_container_width=True):
-            ss.page = "home"
+            ss.page = "login"
             st.rerun()
     st.caption("SIH26003 — working prototype")
 
 
-def render_sidebar(patients, patient_names):
+def render_login(patients):
+    if st.button("← Back"):
+        ss.page = "landing"
+        st.rerun()
+
+    _, mid, _ = st.columns([1, 2, 1])
+    with mid:
+        st.markdown(
+            """
+            <div class="ss-welcome-card">
+                <div class="ss-welcome-orb">🔐</div>
+                <h1>Sign In</h1>
+                <p class="ss-welcome-sub">Enter the patient's name and PIN to continue.</p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        st.write("")
+
+        patient_names = [p["name"] for p in patients]
+        with st.form("login_form"):
+            name = st.selectbox("Patient name", patient_names)
+            pin = st.text_input("PIN", type="password", max_chars=6)
+            role_choice = st.radio(
+                "Continue as", ["Patient", "Caregiver", "Family Member"], horizontal=True
+            )
+            submitted = st.form_submit_button("Enter", use_container_width=True)
+
+        if submitted:
+            patient = next(p for p in patients if p["name"] == name)
+            if pin == patient["pin"]:
+                ss.patient_id = patient["id"]
+                ss.role = "Patient" if role_choice == "Patient" else "Caregiver"
+                if patient["language"] in LABELS:
+                    ss.lang = patient["language"]
+                ss.page = "home"
+                st.rerun()
+            else:
+                st.error("Incorrect PIN. Please try again.")
+
+        st.caption("Demo PIN for every profile: 1234")
+
+
+def render_sidebar(patients):
     with st.sidebar:
         st.markdown(
             """
             <div style="display:flex;align-items:center;gap:0.6rem;margin-bottom:0.6rem;">
                 <div class="ss-badge ss-badge-sm"
-                     style="background:linear-gradient(135deg,#101a33,#1c1240);border:2px solid var(--ss-primary);box-shadow:0 0 14px rgba(0,229,255,0.4);">🧠</div>
-                <div style="font-family:'Exo 2',sans-serif;font-weight:800;font-size:1.3rem;color:var(--ss-primary-light);">
+                     style="background:linear-gradient(135deg,var(--ss-primary-light),var(--ss-primary));border:2px solid var(--ss-primary-dark);box-shadow:0 4px 10px rgba(31,51,47,0.2);">🧠</div>
+                <div style="font-family:'Exo 2',sans-serif;font-weight:800;font-size:1.3rem;color:var(--ss-primary-dark);">
                     Neuronova</div>
             </div>
             """,
             unsafe_allow_html=True,
         )
-        ss.role = st.radio("View", ["Patient", "Caregiver"], index=["Patient", "Caregiver"].index(ss.role))
-
-        sel_name = st.selectbox("Demo profile", patient_names, index=patient_names.index(current_patient(patients)["name"]))
-        new_patient = next(p for p in patients if p["name"] == sel_name)
-        if new_patient["id"] != ss.patient_id and new_patient["language"] in LABELS:
-            ss.lang = new_patient["language"]
-        ss.patient_id = new_patient["id"]
-
-        initials = "".join(w[0] for w in new_patient["name"].split()[:2]).upper()
+        patient = current_patient(patients)
+        initials = "".join(w[0] for w in patient["name"].split()[:2]).upper()
         st.markdown(
             f"""
             <div style="display:flex;align-items:center;gap:0.7rem;background:var(--ss-card);
-                        border:1px solid rgba(0,229,255,0.12);border-radius:14px;padding:0.7rem 0.9rem;
-                        margin:0.5rem 0 0.9rem;box-shadow:0 4px 12px rgba(0,229,255,0.06);">
+                        border:1px solid rgba(31,51,47,0.10);border-radius:14px;padding:0.7rem 0.9rem;
+                        margin:0.5rem 0 0.9rem;box-shadow:0 4px 12px rgba(31,51,47,0.08);">
                 {avatar_html(initials)}
                 <div>
-                    <div style="font-weight:700;color:var(--ss-primary-light);">{new_patient['name']}</div>
-                    <div style="font-size:0.8rem;color:var(--ss-text-muted);">{new_patient['village']} &middot; age {new_patient['age']}</div>
+                    <div style="font-weight:700;color:var(--ss-primary-dark);">{patient['name']}</div>
+                    <div style="font-size:0.8rem;color:var(--ss-text-muted);">{patient['village']} &middot; age {patient['age']}
+                        &middot; signed in as {ss.role}</div>
                 </div>
             </div>
             """,
@@ -275,6 +375,10 @@ def render_sidebar(patients, patient_names):
             "Language", lang_codes, index=lang_codes.index(ss.lang),
             format_func=lambda c: db.LANGUAGES.get(c, c),
         )
+
+        if st.button("🚪 Log out", use_container_width=True):
+            ss.page = "login"
+            st.rerun()
         st.caption("SIH26003 — working prototype")
 
 
@@ -285,7 +389,7 @@ def render_caregiver(patient):
             {icon_badge_html('📊', 'linear-gradient(135deg,var(--ss-secondary),var(--ss-secondary-dark))')}
             <div>
                 <div style="font-family:'Exo 2',sans-serif;font-weight:800;font-size:1.7rem;
-                            color:var(--ss-primary-light);line-height:1.1;">Caregiver Dashboard</div>
+                            color:var(--ss-primary-dark);line-height:1.1;">Caregiver Dashboard</div>
                 <div style="color:var(--ss-text-muted);">
                     Monitoring <b style="color:var(--ss-text);">{patient['name']}</b>,
                     age {patient['age']} &middot; {patient['village']}</div>
@@ -307,7 +411,8 @@ def render_caregiver(patient):
         (c1, "🎯", "var(--ss-primary)", "7-day avg engagement",
          f"{trend['recent_avg']:.0f}%" if trend["has_data"] else "—"),
         (c2, "📈", "var(--ss-secondary)", "Trend", trend["trend"]),
-        (c3, "💊", "var(--ss-accent-dark)", "Medicine adherence today", f"{meds_done}/{meds_total}"),
+        (c3, "💊", "var(--ss-accent-dark)", "Medicine adherence today",
+         f"{meds_done}/{meds_total} ({adherence_pct:.0f}%)" if meds_total else "—"),
     ]
     for col, emoji, color, label, value in metric_specs:
         with col:
@@ -318,15 +423,38 @@ def render_caregiver(patient):
     st.write("")
     render_risk_banner(trend["risk"], trend["recommendation"])
 
-    if trend["has_data"]:
-        df = pd.DataFrame({"date": trend["days"], "avg_score": trend["daily_avg"]}).set_index("date")
+    range_options = {"24 Hours": 1, "7 Days": 7, "15 Days": 15}
+    range_choice = st.radio(
+        "Chart range", list(range_options.keys()), index=1, horizontal=True, key="trend_range"
+    )
+
+    if range_choice == "24 Hours":
+        recent_scores = db.get_scores(patient["id"], days=1)
+        st.subheader("Last 24 hours — session scores")
+        if recent_scores:
+            df = pd.DataFrame({
+                "time": pd.to_datetime([r["played_at"] for r in recent_scores]),
+                "score": [r["score"] for r in recent_scores],
+            }).set_index("time").sort_index()
+            with st.container(border=True):
+                st.line_chart(df, color="#2C6B64")
+        else:
+            st.info("No game sessions logged in the last 24 hours.")
+    else:
+        ranged_trend = cognitive_ai.analyze_trend(db.get_scores(patient["id"], days=range_options[range_choice]))
         head_col, pill_col = st.columns([3, 1])
-        head_col.subheader("21-day cognitive engagement trend")
-        with pill_col:
-            st.write("")
-            render_trend_pill(trend["trend"])
-        with st.container(border=True):
-            st.line_chart(df, color="#00e5ff")
+        head_col.subheader(f"{range_choice} cognitive engagement trend")
+        if ranged_trend["has_data"]:
+            with pill_col:
+                st.write("")
+                render_trend_pill(ranged_trend["trend"])
+            df = pd.DataFrame(
+                {"date": ranged_trend["days"], "avg_score": ranged_trend["daily_avg"]}
+            ).set_index("date")
+            with st.container(border=True):
+                st.line_chart(df, color="#2C6B64")
+        else:
+            st.info(f"Not enough data yet for a {range_choice.lower()} trend.")
 
     st.subheader("Game-by-game breakdown (last 21 days)")
     rows = []
@@ -368,10 +496,10 @@ def render_patient_home(patient):
         <div style="display:flex;align-items:center;gap:0.9rem;margin-bottom:1rem;">
             {icon_badge_html('☀️', 'linear-gradient(135deg,var(--ss-gold),var(--ss-accent-dark))')}
             <div style="font-family:'Exo 2',sans-serif;font-weight:800;font-size:1.5rem;
-                        color:var(--ss-primary-light);">{L('greeting')}, {patient['name']}</div>
+                        color:var(--ss-primary-dark);">{L('greeting')[greeting_period()]}, {patient['name']}</div>
         </div>
-        <div style="background:var(--ss-card);border:1px solid rgba(0,229,255,0.1);border-radius:16px;
-                    padding:1rem 1.2rem;box-shadow:0 6px 16px rgba(0,229,255,0.08);margin-bottom:1.3rem;">
+        <div style="background:var(--ss-card);border:1px solid rgba(31,51,47,0.10);border-radius:16px;
+                    padding:1rem 1.2rem;box-shadow:0 6px 16px rgba(31,51,47,0.08);margin-bottom:1.3rem;">
             <div style="display:flex;justify-content:space-between;font-size:0.85rem;
                         color:var(--ss-text-muted);margin-bottom:0.4rem;">
                 <span>Memory leaves today</span><span>{done_count} of {total}</span>
@@ -397,27 +525,9 @@ def render_patient_home(patient):
     with t2:
         render_tile("🖼️", "linear-gradient(135deg,var(--ss-secondary),var(--ss-secondary-dark))",
                     L("box"), "Familiar faces & notes", "Open", "tile_box", "memory_box")
-    t3, t4 = st.columns(2)
-    with t3:
-        sub = f"{pending} pending" if pending else "All done today"
-        render_tile("⏰", "linear-gradient(135deg,var(--ss-gold),var(--ss-accent-dark))",
-                    L("reminders"), sub, "Open", "tile_reminders", "reminders")
-    with t4:
-        with st.container(border=True):
-            st.markdown(
-                f"""
-                <div style="display:flex;align-items:center;gap:0.9rem;margin-bottom:0.7rem;">
-                    {icon_badge_html('📞', 'linear-gradient(135deg,var(--ss-accent),var(--ss-accent-dark))')}
-                    <div>
-                        <div style="font-weight:700;font-size:1.08rem;color:var(--ss-primary-light);">{L('call')}</div>
-                        <div style="font-size:0.85rem;color:var(--ss-text-muted);">Priya Bora, Daughter</div>
-                    </div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-            if st.button("Call now", key="tile_call", use_container_width=True):
-                st.toast("📞 Calling Priya Bora (Daughter)...")
+    sub = f"{pending} pending" if pending else "All done today"
+    render_tile("⏰", "linear-gradient(135deg,var(--ss-gold),var(--ss-accent-dark))",
+                L("reminders"), sub, "Open", "tile_reminders", "reminders")
 
 
 def render_games_menu(patient):
@@ -427,15 +537,22 @@ def render_games_menu(patient):
         f"""<div style="display:flex;align-items:center;gap:0.7rem;margin-bottom:1rem;">
             {icon_badge_html('🧠', 'linear-gradient(135deg,var(--ss-primary),var(--ss-primary-light))')}
             <div style="font-family:'Exo 2',sans-serif;font-weight:800;font-size:1.5rem;
-                        color:var(--ss-primary-light);">Memory Games</div></div>""",
+                        color:var(--ss-primary-dark);">Memory Games</div></div>""",
         unsafe_allow_html=True,
     )
+
+    ss.setdefault("difficulty", "Medium")
+    st.caption(
+        f"Current difficulty: **{ss.difficulty}** — adjusts itself after every round "
+        "(score 80%+ moves up a level, 40% or below eases back down)."
+    )
+    st.write("")
 
     with st.container(border=True):
         st.markdown(
             f"""<div style="display:flex;align-items:center;gap:0.9rem;margin-bottom:0.7rem;">
                 {icon_badge_html('🃏', 'linear-gradient(135deg,var(--ss-primary),var(--ss-primary-light))')}
-                <div><div style="font-weight:700;font-size:1.08rem;color:var(--ss-primary-light);">Memory Match</div>
+                <div><div style="font-weight:700;font-size:1.08rem;color:var(--ss-primary-dark);">Memory Match</div>
                 <div style="font-size:0.85rem;color:var(--ss-text-muted);">Flip cards and find matching pairs</div></div>
                 </div>""",
             unsafe_allow_html=True,
@@ -444,9 +561,11 @@ def render_games_menu(patient):
             for k in list(ss.keys()):
                 if k.startswith("mm_"):
                     del ss[k]
-            deck = SYMBOLS * 2
+            pairs = MM_PAIRS[ss.difficulty]
+            deck = SYMBOLS[:pairs] * 2
             random.shuffle(deck)
             ss.mm_deck = [{"symbol": s, "matched": False} for s in deck]
+            ss.mm_pairs_target = pairs
             ss.mm_flipped, ss.mm_moves, ss.mm_pending, ss.mm_logged = [], 0, False, False
             goto("game_memory")
 
@@ -454,12 +573,13 @@ def render_games_menu(patient):
         st.markdown(
             f"""<div style="display:flex;align-items:center;gap:0.9rem;margin-bottom:0.7rem;">
                 {icon_badge_html('🎨', 'linear-gradient(135deg,var(--ss-secondary),var(--ss-secondary-dark))')}
-                <div><div style="font-weight:700;font-size:1.08rem;color:var(--ss-primary-light);">Pattern Recall</div>
+                <div><div style="font-weight:700;font-size:1.08rem;color:var(--ss-primary-dark);">Pattern Recall</div>
                 <div style="font-size:0.85rem;color:var(--ss-text-muted);">Watch and repeat a sequence</div></div>
                 </div>""",
             unsafe_allow_html=True,
         )
         if st.button("Play", key="tile_pr", use_container_width=True):
+            ss.pr_num_pads = PR_PADS[ss.difficulty]
             ss.pr_sequence, ss.pr_phase, ss.pr_round, ss.pr_user_pos, ss.pr_best = [], "ready", 0, 0, 0
             goto("game_pattern")
 
@@ -467,7 +587,7 @@ def render_games_menu(patient):
         st.markdown(
             f"""<div style="display:flex;align-items:center;gap:0.9rem;margin-bottom:0.7rem;">
                 {icon_badge_html('👪', 'linear-gradient(135deg,var(--ss-gold),var(--ss-accent-dark))')}
-                <div><div style="font-weight:700;font-size:1.08rem;color:var(--ss-primary-light);">Who Is This?</div>
+                <div><div style="font-weight:700;font-size:1.08rem;color:var(--ss-primary-dark);">Who Is This?</div>
                 <div style="font-size:0.85rem;color:var(--ss-text-muted);">Gentle family recognition practice</div></div>
                 </div>""",
             unsafe_allow_html=True,
@@ -479,6 +599,7 @@ def render_games_menu(patient):
             else:
                 queue = list(family)
                 random.shuffle(queue)
+                ss.fm_num_choices = min(FM_CHOICES[ss.difficulty], len(family))
                 ss.fm_queue, ss.fm_index, ss.fm_answered, ss.fm_chosen, ss.fm_correct = queue, 0, False, None, 0
                 goto("game_family")
 
@@ -509,8 +630,9 @@ def render_game_memory(patient):
                         ss.mm_pending = True
                 st.rerun()
 
+    pairs_target = ss.mm_pairs_target
     matched_pairs = sum(1 for c in deck if c["matched"]) // 2
-    st.write(f"Moves: {ss.mm_moves} | Pairs found: {matched_pairs} / 6")
+    st.write(f"Moves: {ss.mm_moves} | Pairs found: {matched_pairs} / {pairs_target}")
 
     if ss.mm_pending:
         st.info("Not a match this time — that's alright, take another look.")
@@ -519,16 +641,23 @@ def render_game_memory(patient):
             ss.mm_pending = False
             st.rerun()
 
-    if matched_pairs == 6:
-        score = max(20, 100 - (ss.mm_moves - 6) * 5)
+    if matched_pairs == pairs_target:
+        score = max(20, 100 - (ss.mm_moves - pairs_target) * 5)
         st.success(f"🎉 Wonderful! All pairs matched in {ss.mm_moves} moves. A memory leaf just grew!")
         if not ss.mm_logged:
             db.log_game_score(patient["id"], "memory_match", score)
             ss.mm_logged = True
+            change = adjust_difficulty(score)
+            if change == "up":
+                st.info(f"🔼 Score {score:.0f}% — that was easy! Moving up to **{ss.difficulty}** next round.")
+            elif change == "down":
+                st.info(f"🔽 Score {score:.0f}% — let's ease off to **{ss.difficulty}** next round.")
         if st.button("Play again"):
-            deck2 = SYMBOLS * 2
+            new_pairs = MM_PAIRS[ss.difficulty]
+            deck2 = SYMBOLS[:new_pairs] * 2
             random.shuffle(deck2)
             ss.mm_deck = [{"symbol": s, "matched": False} for s in deck2]
+            ss.mm_pairs_target = new_pairs
             ss.mm_flipped, ss.mm_moves, ss.mm_pending, ss.mm_logged = [], 0, False, False
             st.rerun()
 
@@ -538,11 +667,13 @@ def render_game_pattern(patient):
         goto("games_menu")
     st.header("Pattern Recall")
 
+    num_pads = ss.pr_num_pads
+
     if ss.pr_phase == "ready":
         st.caption("Watch the pattern, then repeat it back in the same order.")
         if st.button("Start"):
             ss.pr_round = 1
-            ss.pr_sequence = [random.randint(0, 3)]
+            ss.pr_sequence = [random.randint(0, num_pads - 1)]
             ss.pr_phase = "showing"
             st.rerun()
 
@@ -558,7 +689,7 @@ def render_game_pattern(patient):
     elif ss.pr_phase == "input":
         st.caption(f"Tap the panels in the order shown · Round {ss.pr_round}")
         cols = st.columns(2)
-        for i, pad in enumerate(PADS):
+        for i, pad in enumerate(PADS[:num_pads]):
             with cols[i % 2]:
                 if st.button(pad, key=f"pad_{i}", use_container_width=True):
                     if ss.pr_sequence[ss.pr_user_pos] == i:
@@ -566,13 +697,23 @@ def render_game_pattern(patient):
                         if ss.pr_user_pos == len(ss.pr_sequence):
                             ss.pr_best = max(ss.pr_best, ss.pr_round)
                             ss.pr_round += 1
-                            ss.pr_sequence.append(random.randint(0, 3))
+                            ss.pr_sequence.append(random.randint(0, num_pads - 1))
                             ss.pr_phase = "showing"
                     else:
                         score = min(100, ss.pr_best * 15)
                         if ss.pr_best > 0:
                             db.log_game_score(patient["id"], "pattern_recall", score)
-                        st.session_state["pr_msg"] = "That's alright — let's begin again gently."
+                        change = adjust_difficulty(score)
+                        ss.pr_num_pads = PR_PADS[ss.difficulty]
+                        if change == "up":
+                            st.session_state["pr_msg"] = (
+                                f"🔼 Reached round {ss.pr_best} — that was easy! "
+                                f"Moving up to {ss.difficulty} next time."
+                            )
+                        elif change == "down":
+                            st.session_state["pr_msg"] = f"🔽 Let's ease off to {ss.difficulty} next time — take it steady."
+                        else:
+                            st.session_state["pr_msg"] = "That's alright — let's begin again gently."
                         ss.pr_sequence, ss.pr_phase, ss.pr_round, ss.pr_user_pos = [], "ready", 0, 0
                     st.rerun()
         if ss.get("pr_msg"):
@@ -591,8 +732,14 @@ def render_game_family(patient):
         if not ss.get("fm_logged"):
             db.log_game_score(patient["id"], "family_match", score)
             ss.fm_logged = True
+            change = adjust_difficulty(score)
+            if change == "up":
+                st.info(f"🔼 Score {score:.0f}% — that was easy! Moving up to **{ss.difficulty}** next round.")
+            elif change == "down":
+                st.info(f"🔽 Score {score:.0f}% — let's ease off to **{ss.difficulty}** next round.")
         if st.button("Play again"):
             random.shuffle(queue)
+            ss.fm_num_choices = min(FM_CHOICES[ss.difficulty], len(queue))
             ss.fm_index, ss.fm_answered, ss.fm_chosen, ss.fm_correct, ss.fm_logged = 0, False, None, 0, False
             st.rerun()
     else:
@@ -602,9 +749,9 @@ def render_game_family(patient):
             <div style="display:flex;justify-content:center;margin:0.6rem 0 1rem;">
                 <div style="width:6rem;height:6rem;border-radius:999px;display:flex;align-items:center;
                             justify-content:center;font-family:'Exo 2',sans-serif;font-weight:700;
-                            font-size:2rem;color:var(--ss-primary-light);
-                            background:linear-gradient(135deg,#101a33 0%,#1c1240 100%);
-                            border:3px solid var(--ss-primary);box-shadow:0 8px 20px rgba(0,229,255,0.18);">
+                            font-size:2rem;color:#ffffff;
+                            background:linear-gradient(135deg,var(--ss-primary-light) 0%,var(--ss-primary) 100%);
+                            border:3px solid var(--ss-primary-dark);box-shadow:0 8px 20px rgba(31,51,47,0.2);">
                     {person['initials']}
                 </div>
             </div>
@@ -616,7 +763,7 @@ def render_game_family(patient):
         if "fm_choices" not in ss or ss.get("fm_choices_idx") != ss.fm_index:
             others = [f["name"] for f in queue if f["name"] != person["name"]]
             random.shuffle(others)
-            choices = [person["name"]] + others[:2]
+            choices = [person["name"]] + others[: ss.fm_num_choices - 1]
             random.shuffle(choices)
             ss.fm_choices = choices
             ss.fm_choices_idx = ss.fm_index
@@ -652,7 +799,7 @@ def render_memory_box(patient):
                 st.markdown(
                     f"""<div style="display:flex;align-items:center;gap:0.7rem;margin-bottom:0.4rem;">
                         {avatar_html(p['initials'])}
-                        <div><div style="font-weight:700;color:var(--ss-primary-light);">{p['name']}</div>
+                        <div><div style="font-weight:700;color:var(--ss-primary-dark);">{p['name']}</div>
                         <div style="font-size:0.8rem;color:var(--ss-text-muted);">{p['relation']} &middot; {p['last_contact']}</div>
                         </div></div>""",
                     unsafe_allow_html=True,
@@ -698,10 +845,10 @@ def render_patient(patient):
         f"""
         <div style="display:flex;align-items:center;gap:0.6rem;margin-bottom:1.1rem;">
             <div class="ss-badge ss-badge-sm"
-                 style="background:linear-gradient(135deg,#101a33,#1c1240);border:2px solid var(--ss-primary);box-shadow:0 0 14px rgba(0,229,255,0.4);">🧠</div>
+                 style="background:linear-gradient(135deg,var(--ss-primary-light),var(--ss-primary));border:2px solid var(--ss-primary-dark);box-shadow:0 4px 10px rgba(31,51,47,0.2);">🧠</div>
             <div>
                 <div style="font-family:'Exo 2',sans-serif;font-weight:800;font-size:1.35rem;
-                            color:var(--ss-primary-light);line-height:1.15;">{L('app')}</div>
+                            color:var(--ss-primary-dark);line-height:1.15;">{L('app')}</div>
                 <div style="font-size:0.82rem;color:var(--ss-text-muted);">{L('sub')}</div>
             </div>
         </div>
@@ -732,7 +879,6 @@ def run():
     ss.setdefault("role", "Patient")
 
     patients = db.get_patients()
-    patient_names = [p["name"] for p in patients]
     ss.setdefault("patient_id", patients[0]["id"])
 
     inject_global_css()
@@ -745,7 +891,11 @@ def run():
         render_landing()
         st.stop()
 
-    render_sidebar(patients, patient_names)
+    if ss.page == "login":
+        render_login(patients)
+        st.stop()
+
+    render_sidebar(patients)
     patient = current_patient(patients)
 
     if ss.role == "Caregiver":

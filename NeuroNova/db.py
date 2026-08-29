@@ -43,7 +43,8 @@ def init_db(force_reseed=False):
             name TEXT NOT NULL,
             age INTEGER,
             village TEXT,
-            language TEXT DEFAULT 'en'
+            language TEXT DEFAULT 'en',
+            pin TEXT DEFAULT '1234'
         );
 
         CREATE TABLE IF NOT EXISTS family_members (
@@ -81,6 +82,11 @@ def init_db(force_reseed=False):
         """
     )
     conn.commit()
+
+    existing_cols = [row[1] for row in cur.execute("PRAGMA table_info(patients)")]
+    if "pin" not in existing_cols:
+        cur.execute("ALTER TABLE patients ADD COLUMN pin TEXT DEFAULT '1234'")
+        conn.commit()
 
     if first_run or force_reseed:
         _seed_demo_data(conn)
