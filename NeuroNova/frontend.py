@@ -6,6 +6,7 @@ db.py, cognitive_ai.py and voice.py stay backend-only (data, analytics, speech);
 app.py is just the entry point that wires the database up and calls run().
 """
 
+import base64
 import os
 import random
 from datetime import datetime
@@ -15,6 +16,7 @@ import pandas as pd
 import db
 import cognitive_ai
 import voice
+import report
 
 # NOTE on translation quality: "en" and "as" (Assamese) are solid. The "kha"
 # (Khasi), "brx" (Bodo), "mni" (Manipuri/Meitei) and "lus" (Mizo) entries
@@ -107,6 +109,7 @@ def adjust_difficulty(score):
     challenged session, so the level holds. Already-Hard sessions can't step
     up further, and already-Easy sessions can't step down further.
 
+    
     Returns "up", "down", or None (no change) so callers can tell the patient
     what happened and why.
     """
@@ -155,8 +158,29 @@ def icon_badge_html(emoji, bg, size="md"):
     return f'<div class="{cls}" style="background:{bg};">{emoji}</div>'
 
 
-def avatar_html(initials):
-    return f'<div class="ss-avatar">{initials}</div>'
+def _photo_data_uri(photo_path):
+    """Base64-encode a photo so it can be embedded directly in the raw HTML
+    cards this app builds (a plain <img src="local/path"> won't resolve in
+    the browser, since these aren't served as static files)."""
+    if not photo_path:
+        return None
+    full_path = os.path.join(os.path.dirname(__file__), photo_path)
+    if not os.path.exists(full_path):
+        return None
+    ext = os.path.splitext(full_path)[1].lstrip(".").lower() or "png"
+    with open(full_path, "rb") as f:
+        encoded = base64.b64encode(f.read()).decode()
+    return f"data:image/{ext};base64,{encoded}"
+
+
+def avatar_html(initials, photo_path=None, size_rem=2.6):
+    uri = _photo_data_uri(photo_path)
+    if uri:
+        return (
+            f'<img src="{uri}" class="ss-avatar" '
+            f'style="width:{size_rem}rem;height:{size_rem}rem;object-fit:cover;" />'
+        )
+    return f'<div class="ss-avatar" style="width:{size_rem}rem;height:{size_rem}rem;">{initials}</div>'
 
 
 def render_tile(emoji, badge_bg, title, subtitle, button_label, key, on_click_page, disabled=False):
@@ -339,6 +363,36 @@ def render_login(patients):
         st.caption("Demo PIN for every profile: 1234")
 
 
+def render_patient_photo_editor(patient):
+    """Photo upload/preview/remove controls for the current patient. Lives in
+    the sidebar (caregiver mode only) so it's reachable from any page."""
+    with st.expander("📷 Update patient's photo"):
+        new_photo = st.file_uploader(
+            "Photo (jpg/png)", type=["jpg", "jpeg", "png"], key="patient_photo_upload"
+        )
+        if new_photo is not None:
+            st.image(new_photo, width=110, caption="Preview")
+
+        bcol1, bcol2 = st.columns(2)
+        with bcol1:
+            if st.button("Save photo", key="save_patient_photo",
+                          disabled=new_photo is None, use_container_width=True):
+                try:
+                    photo_path = db.save_uploaded_photo(new_photo.getvalue(), new_photo.name)
+                except ValueError as e:
+                    st.error(str(e))
+                else:
+                    db.update_patient_photo(patient["id"], photo_path)
+                    st.success("Patient photo updated.")
+                    st.rerun()
+        with bcol2:
+            if st.button("Remove photo", key="remove_patient_photo",
+                          disabled=not patient["photo_path"], use_container_width=True):
+                db.update_patient_photo(patient["id"], None)
+                st.success("Photo removed.")
+                st.rerun()
+
+
 def render_sidebar(patients):
     with st.sidebar:
         st.markdown(
@@ -359,7 +413,7 @@ def render_sidebar(patients):
             <div style="display:flex;align-items:center;gap:0.7rem;background:var(--ss-card);
                         border:1px solid rgba(31,51,47,0.10);border-radius:14px;padding:0.7rem 0.9rem;
                         margin:0.5rem 0 0.9rem;box-shadow:0 4px 12px rgba(31,51,47,0.08);">
-                {avatar_html(initials)}
+                {avatar_html(initials, patient['photo_path'])}
                 <div>
                     <div style="font-weight:700;color:var(--ss-primary-dark);">{patient['name']}</div>
                     <div style="font-size:0.8rem;color:var(--ss-text-muted);">{patient['village']} &middot; age {patient['age']}
@@ -369,6 +423,9 @@ def render_sidebar(patients):
             """,
             unsafe_allow_html=True,
         )
+
+        if ss.role == "Caregiver":
+            render_patient_photo_editor(patient)
 
         lang_codes = list(LABELS.keys())
         ss.lang = st.selectbox(
@@ -397,6 +454,14 @@ def render_caregiver(patient):
         </div>
         """,
         unsafe_allow_html=True,
+    )
+
+    st.download_button(
+        "📄 Download PDF report for doctor / PHC visit",
+        data=report.generate_caregiver_report(patient),
+        file_name=f"neuronova_report_{patient['name'].replace(' ', '_').lower()}_{datetime.now().strftime('%Y%m%d')}.pdf",
+        mime="application/pdf",
+        key="download_pdf_report",
     )
     st.write("")
 
@@ -479,6 +544,9 @@ def render_caregiver(patient):
                 status = "Done ✅" if r["done"] else "Pending ⏳"
                 st.markdown(f"**{r['time_str']}** — {r['task']}  \n_{r['type']} · {status}_")
     render_add_reminder_form(patient["id"], key_suffix="caregiver")
+
+    st.subheader("Family & Memory Box")
+    render_family_gallery(patient, key_suffix="caregiver")
 
     st.info("🌐 Interface supports English, Assamese, Khasi, Bodo, Manipuri and Mizo — "
             "built for accessibility across the North Eastern Region. Non-English labels beyond "
@@ -744,16 +812,26 @@ def render_game_family(patient):
             st.rerun()
     else:
         person = queue[ss.fm_index]
+        photo_uri = _photo_data_uri(person['photo_path'])
+        if photo_uri:
+            face_html = (
+                f'<img src="{photo_uri}" style="width:6rem;height:6rem;border-radius:999px;'
+                f'object-fit:cover;border:3px solid var(--ss-primary-dark);'
+                f'box-shadow:0 8px 20px rgba(31,51,47,0.2);" />'
+            )
+        else:
+            face_html = (
+                f'<div style="width:6rem;height:6rem;border-radius:999px;display:flex;align-items:center;'
+                f'justify-content:center;font-family:\'Exo 2\',sans-serif;font-weight:700;'
+                f'font-size:2rem;color:#ffffff;'
+                f'background:linear-gradient(135deg,var(--ss-primary-light) 0%,var(--ss-primary) 100%);'
+                f'border:3px solid var(--ss-primary-dark);box-shadow:0 8px 20px rgba(31,51,47,0.2);">'
+                f'{person["initials"]}</div>'
+            )
         st.markdown(
             f"""
             <div style="display:flex;justify-content:center;margin:0.6rem 0 1rem;">
-                <div style="width:6rem;height:6rem;border-radius:999px;display:flex;align-items:center;
-                            justify-content:center;font-family:'Exo 2',sans-serif;font-weight:700;
-                            font-size:2rem;color:#ffffff;
-                            background:linear-gradient(135deg,var(--ss-primary-light) 0%,var(--ss-primary) 100%);
-                            border:3px solid var(--ss-primary-dark);box-shadow:0 8px 20px rgba(31,51,47,0.2);">
-                    {person['initials']}
-                </div>
+                {face_html}
             </div>
             """,
             unsafe_allow_html=True,
@@ -787,10 +865,11 @@ def render_game_family(patient):
                 st.rerun()
 
 
-def render_memory_box(patient):
-    if st.button("← Back"):
-        goto("home")
-    st.header(L("box"))
+def render_family_gallery(patient, key_suffix=""):
+    """Shared family/memory-box gallery: photo + name + relation + note for
+    each family member, plus a form to add a new one (with optional photo
+    upload). Used on both the patient's Memory Box and the caregiver
+    dashboard so either side can see and add real family photos."""
     family = db.get_family(patient["id"])
     cols = st.columns(2)
     for i, p in enumerate(family):
@@ -798,27 +877,43 @@ def render_memory_box(patient):
             with st.container(border=True):
                 st.markdown(
                     f"""<div style="display:flex;align-items:center;gap:0.7rem;margin-bottom:0.4rem;">
-                        {avatar_html(p['initials'])}
+                        {avatar_html(p['initials'], p['photo_path'])}
                         <div><div style="font-weight:700;color:var(--ss-primary-dark);">{p['name']}</div>
                         <div style="font-size:0.8rem;color:var(--ss-text-muted);">{p['relation']} &middot; {p['last_contact']}</div>
                         </div></div>""",
                     unsafe_allow_html=True,
                 )
                 st.write(p["note"])
-                speak_button(f"Message from {p['name']}, your {p['relation']}. {p['note']}", key=f"voice_{p['id']}")
+                speak_button(
+                    f"Message from {p['name']}, your {p['relation']}. {p['note']}",
+                    key=f"voice_{key_suffix}_{p['id']}",
+                )
 
-    with st.expander("+ Add a family memory"):
-        with st.form("add_person_form", clear_on_submit=True):
-            name = st.text_input("Name")
-            relation = st.text_input("Relation (e.g. Son, Neighbour)")
-            note = st.text_area("A short note to help remember them", "")
-            if st.form_submit_button("Save to Memory Box"):
+    with st.expander("+ Add a family member (name & photo)"):
+        with st.form(f"add_person_form_{key_suffix}", clear_on_submit=True):
+            name = st.text_input("Name", key=f"fam_name_{key_suffix}")
+            relation = st.text_input("Relation (e.g. Son, Neighbour)", key=f"fam_rel_{key_suffix}")
+            note = st.text_area("A short note to help remember them", "", key=f"fam_note_{key_suffix}")
+            photo = st.file_uploader("Photo (optional)", type=["jpg", "jpeg", "png"], key=f"fam_photo_{key_suffix}")
+            if st.form_submit_button("Save"):
                 if name and relation:
-                    db.add_family_member(patient["id"], name, relation, note)
-                    st.success("Saved to Memory Box 💛")
-                    st.rerun()
+                    try:
+                        photo_path = db.save_uploaded_photo(photo.getvalue(), photo.name) if photo else None
+                    except ValueError as e:
+                        st.error(str(e))
+                    else:
+                        db.add_family_member(patient["id"], name, relation, note, photo_path)
+                        st.success("Saved 💛")
+                        st.rerun()
                 else:
                     st.warning("Please enter both a name and relation.")
+
+
+def render_memory_box(patient):
+    if st.button("← Back"):
+        goto("home")
+    st.header(L("box"))
+    render_family_gallery(patient, key_suffix="box")
 
 
 def render_reminders(patient):
@@ -879,7 +974,12 @@ def run():
     ss.setdefault("role", "Patient")
 
     patients = db.get_patients()
-    ss.setdefault("patient_id", patients[0]["id"])
+    valid_ids = {p["id"] for p in patients}
+    if ss.get("patient_id") not in valid_ids:
+        # Stale id from a previous session (e.g. demo data was reseeded and
+        # SQLite's AUTOINCREMENT assigned new ids) -- fall back instead of
+        # crashing with StopIteration in current_patient().
+        ss.patient_id = patients[0]["id"]
 
     inject_global_css()
 
