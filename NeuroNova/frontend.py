@@ -55,14 +55,14 @@ LABELS = {
             "reminders": "Tunlaia Hriattîrna"},
 }
 
-GAME_TYPES = {"memory_match": "Memory Match", "pattern_recall": "Pattern Recall", "family_match": "Who Is This?"}
+GAME_TYPES = {"memory_match": "Memory Match", "pattern_recall": "Pattern Recall", "traditions_match": "Know Your Roots"}
 SYMBOLS = ["🍵", "🐘", "🛶", "🥁", "🌾", "🎭", "🦚", "🌸"]
 PADS = ["Tea Garden", "Muga Silk", "River Boat", "Bihu Drum", "Bamboo Grove", "Hornbill Dance"]
 
 DIFFICULTIES = ["Easy", "Medium", "Hard"]
 MM_PAIRS = {"Easy": 3, "Medium": 6, "Hard": 8}
 PR_PADS = {"Easy": 2, "Medium": 4, "Hard": 6}
-FM_CHOICES = {"Easy": 2, "Medium": 3, "Hard": 4}
+TM_CHOICES = {"Easy": 2, "Medium": 3, "Hard": 4}
 
 ss = st.session_state
 
@@ -128,7 +128,7 @@ def speak_button(text, key):
         if voice.is_available():
             path = voice.speak_to_file(text)
             if path:
-                st.audio(path)
+                st.audio(path, autoplay=True)
             else:
                 st.info(text)
         else:
@@ -141,11 +141,15 @@ def render_add_reminder_form(patient_id, key_suffix):
             time_str = st.text_input("Time (e.g. 06:00 PM)", key=f"rem_time_{key_suffix}")
             task = st.text_input("Task (e.g. Evening walk)", key=f"rem_task_{key_suffix}")
             rtype = st.selectbox(
-                "Type", ["Medicine", "Meal", "Activity", "Family", "Custom"], key=f"rem_type_{key_suffix}"
+                "Type", ["Medicine", "Hydration", "Meal", "Activity", "Appointment", "Family", "Custom"],
+                key=f"rem_type_{key_suffix}"
             )
             if st.form_submit_button("Save reminder"):
                 if time_str and task:
-                    icon = {"Medicine": "💊", "Meal": "🍚", "Activity": "🧩", "Family": "📞", "Custom": "📌"}[rtype]
+                    icon = {
+                        "Medicine": "💊", "Hydration": "💧", "Meal": "🍚", "Activity": "🧩",
+                        "Appointment": "🩺", "Family": "📞", "Custom": "📌",
+                    }[rtype]
                     db.add_reminder(patient_id, time_str, task, rtype, icon)
                     st.success("Reminder added")
                     st.rerun()
@@ -350,9 +354,9 @@ def render_login(patients):
 
         if submitted:
             patient = next(p for p in patients if p["name"] == name)
-            if pin == patient["pin"]:
+            if db.verify_patient_pin(patient, pin):
                 ss.patient_id = patient["id"]
-                ss.role = "Patient" if role_choice == "Patient" else "Caregiver"
+                ss.role = role_choice
                 if patient["language"] in LABELS:
                     ss.lang = patient["language"]
                 ss.page = "home"
@@ -361,6 +365,54 @@ def render_login(patients):
                 st.error("Incorrect PIN. Please try again.")
 
         st.caption("Demo PIN for every profile: 1234")
+
+        with st.expander("Forgot PIN?"):
+            st.caption(
+                "Offline PIN reset — no email or SMS needed. Enter the "
+                "caregiver's admin PIN to generate a new PIN for a patient."
+            )
+            with st.form("forgot_pin_form"):
+                forgot_name = st.selectbox("Patient name", patient_names, key="forgot_pin_name")
+                admin_pin = st.text_input("Caregiver admin PIN", type="password", max_chars=6)
+                reset_submitted = st.form_submit_button("Reset PIN")
+            if reset_submitted:
+                if db.verify_admin_pin(admin_pin):
+                    forgot_patient = next(p for p in patients if p["name"] == forgot_name)
+                    new_pin = db.reset_patient_pin(forgot_patient["id"])
+                    st.success(f"New PIN for {forgot_name}: **{new_pin}** — write this down, it won't be shown again.")
+                else:
+                    st.error("Incorrect admin PIN.")
+
+        with st.expander("+ Register a new patient"):
+            with st.form("add_patient_form", clear_on_submit=True):
+                new_name = st.text_input("Patient's full name")
+                new_age = st.number_input("Age", min_value=1, max_value=120, value=70)
+                new_village = st.text_input("Village / town")
+                lang_codes = list(LABELS.keys())
+                new_lang = st.selectbox(
+                    "Preferred language (for reading the app)", lang_codes,
+                    format_func=lambda c: db.LANGUAGES.get(c, c),
+                    key="add_patient_lang",
+                )
+                state_codes = list(db.STATES.keys())
+                new_state = st.selectbox(
+                    "State (for 'Know Your Roots' — independent of language above)",
+                    state_codes,
+                    format_func=lambda c: db.STATES.get(c, c),
+                    key="add_patient_state",
+                    help="Determines which state's culture shows in the memory game — "
+                         "not tied to the language chosen above, since someone can prefer "
+                         "reading in English while still being from, say, Nagaland.",
+                )
+                new_pin = st.text_input("Set a PIN (4-6 digits)", type="password", max_chars=6)
+                add_submitted = st.form_submit_button("Register patient", use_container_width=True)
+            if add_submitted:
+                if new_name and new_village and new_pin and new_pin.isdigit() and 4 <= len(new_pin) <= 6:
+                    db.add_patient(new_name, int(new_age), new_village, new_lang, new_state, new_pin)
+                    st.success(f"{new_name} registered — select their name above to sign in.")
+                    st.rerun()
+                else:
+                    st.warning("Please enter a name, village, and a 4-6 digit PIN.")
 
 
 def render_patient_photo_editor(patient):
@@ -416,7 +468,7 @@ def render_sidebar(patients):
                 {avatar_html(initials, patient['photo_path'])}
                 <div>
                     <div style="font-weight:700;color:var(--ss-primary-dark);">{patient['name']}</div>
-                    <div style="font-size:0.8rem;color:var(--ss-text-muted);">{patient['village']} &middot; age {patient['age']}
+                    <div style="font-size:0.8rem;color:var(--ss-text-muted);">{db.patient_location(patient)} &middot; age {patient['age']}
                         &middot; signed in as {ss.role}</div>
                 </div>
             </div>
@@ -440,6 +492,9 @@ def render_sidebar(patients):
 
 
 def render_caregiver(patient):
+    is_caregiver = ss.role == "Caregiver"
+    if not is_caregiver:
+        st.caption("👀 Read-only family view — ask the caregiver to add or edit entries.")
     st.markdown(
         f"""
         <div style="display:flex;align-items:center;gap:0.9rem;margin-bottom:0.3rem;">
@@ -449,7 +504,7 @@ def render_caregiver(patient):
                             color:var(--ss-primary-dark);line-height:1.1;">Caregiver Dashboard</div>
                 <div style="color:var(--ss-text-muted);">
                     Monitoring <b style="color:var(--ss-text);">{patient['name']}</b>,
-                    age {patient['age']} &middot; {patient['village']}</div>
+                    age {patient['age']} &middot; {db.patient_location(patient)}</div>
             </div>
         </div>
         """,
@@ -543,10 +598,15 @@ def render_caregiver(patient):
             with rc2:
                 status = "Done ✅" if r["done"] else "Pending ⏳"
                 st.markdown(f"**{r['time_str']}** — {r['task']}  \n_{r['type']} · {status}_")
-    render_add_reminder_form(patient["id"], key_suffix="caregiver")
+    if is_caregiver:
+        render_add_reminder_form(patient["id"], key_suffix="caregiver")
 
     st.subheader("Family & Memory Box")
-    render_family_gallery(patient, key_suffix="caregiver")
+    render_family_gallery(patient, key_suffix="caregiver", editable=is_caregiver)
+
+    st.subheader("Traditions & Culture Gallery")
+    st.caption("Curate the North East festivals, dance, attire, food and crafts used in the 'Know Your Roots' game.")
+    render_traditions_gallery(key_suffix="caregiver", editable=is_caregiver)
 
     st.info("🌐 Interface supports English, Assamese, Khasi, Bodo, Manipuri and Mizo — "
             "built for accessibility across the North Eastern Region. Non-English labels beyond "
@@ -654,22 +714,27 @@ def render_games_menu(patient):
     with st.container(border=True):
         st.markdown(
             f"""<div style="display:flex;align-items:center;gap:0.9rem;margin-bottom:0.7rem;">
-                {icon_badge_html('👪', 'linear-gradient(135deg,var(--ss-gold),var(--ss-accent-dark))')}
-                <div><div style="font-weight:700;font-size:1.08rem;color:var(--ss-primary-dark);">Who Is This?</div>
-                <div style="font-size:0.85rem;color:var(--ss-text-muted);">Gentle family recognition practice</div></div>
+                {icon_badge_html('🪘', 'linear-gradient(135deg,var(--ss-gold),var(--ss-accent-dark))')}
+                <div><div style="font-weight:700;font-size:1.08rem;color:var(--ss-primary-dark);">Know Your Roots</div>
+                <div style="font-size:0.85rem;color:var(--ss-text-muted);">Gentle practice with North East festivals, dance, attire & food</div></div>
                 </div>""",
             unsafe_allow_html=True,
         )
-        if st.button("Play", key="tile_fm", use_container_width=True):
-            family = db.get_family(patient["id"])
-            if len(family) < 3:
-                st.warning("Add at least 3 people to Memory Box first to unlock this game.")
+        if st.button("Play", key="tile_tm", use_container_width=True):
+            traditions = db.get_traditions_for_state(patient["state"])
+            if len(traditions) < 3:
+                state_label = db.STATES.get(patient["state"], "this patient's state")
+                st.warning(
+                    f"No {state_label} traditions yet — ask your caregiver to add at least 3 "
+                    f"(with photos) for {state_label} in the caregiver dashboard to unlock this game. "
+                    "Showing a different state's culture instead wouldn't be familiar to this patient."
+                )
             else:
-                queue = list(family)
+                queue = list(traditions)
                 random.shuffle(queue)
-                ss.fm_num_choices = min(FM_CHOICES[ss.difficulty], len(family))
-                ss.fm_queue, ss.fm_index, ss.fm_answered, ss.fm_chosen, ss.fm_correct = queue, 0, False, None, 0
-                goto("game_family")
+                ss.tm_num_choices = min(TM_CHOICES[ss.difficulty], len(traditions))
+                ss.tm_queue, ss.tm_index, ss.tm_answered, ss.tm_chosen, ss.tm_correct = queue, 0, False, None, 0
+                goto("game_traditions")
 
 
 def render_game_memory(patient):
@@ -788,18 +853,18 @@ def render_game_pattern(patient):
             st.warning(ss.pop("pr_msg"))
 
 
-def render_game_family(patient):
+def render_game_traditions(patient):
     if st.button("← Back to games"):
         goto("games_menu")
-    st.header("Who Is This?")
+    st.header("Know Your Roots")
 
-    queue = ss.fm_queue
-    if ss.fm_index >= len(queue):
-        score = round(100 * ss.fm_correct / len(queue))
-        st.success(f"🎉 Round complete — {ss.fm_correct} of {len(queue)} remembered.")
-        if not ss.get("fm_logged"):
-            db.log_game_score(patient["id"], "family_match", score)
-            ss.fm_logged = True
+    queue = ss.tm_queue
+    if ss.tm_index >= len(queue):
+        score = round(100 * ss.tm_correct / len(queue))
+        st.success(f"🎉 Round complete — {ss.tm_correct} of {len(queue)} remembered.")
+        if not ss.get("tm_logged"):
+            db.log_game_score(patient["id"], "traditions_match", score)
+            ss.tm_logged = True
             change = adjust_difficulty(score)
             if change == "up":
                 st.info(f"🔼 Score {score:.0f}% — that was easy! Moving up to **{ss.difficulty}** next round.")
@@ -807,12 +872,12 @@ def render_game_family(patient):
                 st.info(f"🔽 Score {score:.0f}% — let's ease off to **{ss.difficulty}** next round.")
         if st.button("Play again"):
             random.shuffle(queue)
-            ss.fm_num_choices = min(FM_CHOICES[ss.difficulty], len(queue))
-            ss.fm_index, ss.fm_answered, ss.fm_chosen, ss.fm_correct, ss.fm_logged = 0, False, None, 0, False
+            ss.tm_num_choices = min(TM_CHOICES[ss.difficulty], len(queue))
+            ss.tm_index, ss.tm_answered, ss.tm_chosen, ss.tm_correct, ss.tm_logged = 0, False, None, 0, False
             st.rerun()
     else:
-        person = queue[ss.fm_index]
-        photo_uri = _photo_data_uri(person['photo_path'])
+        item = queue[ss.tm_index]
+        photo_uri = _photo_data_uri(item['photo_path'])
         if photo_uri:
             face_html = (
                 f'<img src="{photo_uri}" style="width:6rem;height:6rem;border-radius:999px;'
@@ -820,13 +885,14 @@ def render_game_family(patient):
                 f'box-shadow:0 8px 20px rgba(31,51,47,0.2);" />'
             )
         else:
+            initials = "".join(w[0] for w in item["name"].split()[:2]).upper()
             face_html = (
                 f'<div style="width:6rem;height:6rem;border-radius:999px;display:flex;align-items:center;'
                 f'justify-content:center;font-family:\'Exo 2\',sans-serif;font-weight:700;'
                 f'font-size:2rem;color:#ffffff;'
                 f'background:linear-gradient(135deg,var(--ss-primary-light) 0%,var(--ss-primary) 100%);'
                 f'border:3px solid var(--ss-primary-dark);box-shadow:0 8px 20px rgba(31,51,47,0.2);">'
-                f'{person["initials"]}</div>'
+                f'{initials}</div>'
             )
         st.markdown(
             f"""
@@ -836,40 +902,42 @@ def render_game_family(patient):
             """,
             unsafe_allow_html=True,
         )
-        st.write(f"Relation clue: **your {person['relation']}**")
+        st.write(f"Category clue: **{item['category']}**")
 
-        if "fm_choices" not in ss or ss.get("fm_choices_idx") != ss.fm_index:
-            others = [f["name"] for f in queue if f["name"] != person["name"]]
+        if "tm_choices" not in ss or ss.get("tm_choices_idx") != ss.tm_index:
+            others = [t["name"] for t in queue if t["name"] != item["name"]]
             random.shuffle(others)
-            choices = [person["name"]] + others[: ss.fm_num_choices - 1]
+            choices = [item["name"]] + others[: ss.tm_num_choices - 1]
             random.shuffle(choices)
-            ss.fm_choices = choices
-            ss.fm_choices_idx = ss.fm_index
+            ss.tm_choices = choices
+            ss.tm_choices_idx = ss.tm_index
 
-        for name in ss.fm_choices:
-            if st.button(name, key=f"fm_choice_{ss.fm_index}_{name}", disabled=ss.fm_answered):
-                ss.fm_answered = True
-                ss.fm_chosen = name
-                if name == person["name"]:
-                    ss.fm_correct += 1
+        for name in ss.tm_choices:
+            if st.button(name, key=f"tm_choice_{ss.tm_index}_{name}", disabled=ss.tm_answered):
+                ss.tm_answered = True
+                ss.tm_chosen = name
+                if name == item["name"]:
+                    ss.tm_correct += 1
                 st.rerun()
 
-        if ss.fm_answered:
-            correct = ss.fm_chosen == person["name"]
+        if ss.tm_answered:
+            correct = ss.tm_chosen == item["name"]
             prefix = "✅ Yes, that's right!" if correct else "💛 That's okay — this is"
-            st.info(f"{prefix} **{person['name']}**, your {person['relation'].lower()}. {person['note']}")
+            st.info(f"{prefix} **{item['name']}** ({item['category']}). {item['note']}")
             if st.button("Continue"):
-                ss.fm_index += 1
-                ss.fm_answered = False
-                ss.fm_chosen = None
+                ss.tm_index += 1
+                ss.tm_answered = False
+                ss.tm_chosen = None
                 st.rerun()
 
 
-def render_family_gallery(patient, key_suffix=""):
+def render_family_gallery(patient, key_suffix="", editable=True):
     """Shared family/memory-box gallery: photo + name + relation + note for
     each family member, plus a form to add a new one (with optional photo
     upload). Used on both the patient's Memory Box and the caregiver
-    dashboard so either side can see and add real family photos."""
+    dashboard so either side can see and add real family photos. The
+    add-form is hidden when editable=False (e.g. a read-only Family Member
+    login on the caregiver dashboard)."""
     family = db.get_family(patient["id"])
     cols = st.columns(2)
     for i, p in enumerate(family):
@@ -889,24 +957,86 @@ def render_family_gallery(patient, key_suffix=""):
                     key=f"voice_{key_suffix}_{p['id']}",
                 )
 
-    with st.expander("+ Add a family member (name & photo)"):
-        with st.form(f"add_person_form_{key_suffix}", clear_on_submit=True):
-            name = st.text_input("Name", key=f"fam_name_{key_suffix}")
-            relation = st.text_input("Relation (e.g. Son, Neighbour)", key=f"fam_rel_{key_suffix}")
-            note = st.text_area("A short note to help remember them", "", key=f"fam_note_{key_suffix}")
-            photo = st.file_uploader("Photo (optional)", type=["jpg", "jpeg", "png"], key=f"fam_photo_{key_suffix}")
-            if st.form_submit_button("Save"):
-                if name and relation:
-                    try:
-                        photo_path = db.save_uploaded_photo(photo.getvalue(), photo.name) if photo else None
-                    except ValueError as e:
-                        st.error(str(e))
+    if editable:
+        with st.expander("+ Add a family member (name & photo)"):
+            with st.form(f"add_person_form_{key_suffix}", clear_on_submit=True):
+                name = st.text_input("Name", key=f"fam_name_{key_suffix}")
+                relation = st.text_input("Relation (e.g. Son, Neighbour)", key=f"fam_rel_{key_suffix}")
+                note = st.text_area("A short note to help remember them", "", key=f"fam_note_{key_suffix}")
+                photo = st.file_uploader("Photo (optional)", type=["jpg", "jpeg", "png"], key=f"fam_photo_{key_suffix}")
+                if st.form_submit_button("Save"):
+                    if name and relation:
+                        try:
+                            photo_path = db.save_uploaded_photo(photo.getvalue(), photo.name) if photo else None
+                        except ValueError as e:
+                            st.error(str(e))
+                        else:
+                            db.add_family_member(patient["id"], name, relation, note, photo_path)
+                            st.success("Saved 💛")
+                            st.rerun()
                     else:
-                        db.add_family_member(patient["id"], name, relation, note, photo_path)
-                        st.success("Saved 💛")
-                        st.rerun()
-                else:
-                    st.warning("Please enter both a name and relation.")
+                        st.warning("Please enter both a name and relation.")
+
+
+TRADITION_CATEGORIES = ["Festival", "Dance", "Attire", "Food", "Instrument", "Craft", "Other"]
+
+
+def render_traditions_gallery(key_suffix="", editable=True):
+    """Shared, patient-independent gallery of traditional North East items
+    (festivals, dance, attire, food, crafts) with photo + name + note, plus
+    a form to add a new one. Powers the 'Know Your Roots' game and is
+    curated by caregivers rather than by patients. The add-form is hidden
+    when editable=False (e.g. a read-only Family Member login)."""
+    traditions = db.get_traditions()
+    cols = st.columns(2)
+    for i, t in enumerate(traditions):
+        with cols[i % 2]:
+            with st.container(border=True):
+                initials = "".join(w[0] for w in t["name"].split()[:2]).upper()
+                region = db.STATES.get(t["language"], "All states") if t["language"] else "All states"
+                st.markdown(
+                    f"""<div style="display:flex;align-items:center;gap:0.7rem;margin-bottom:0.4rem;">
+                        {avatar_html(initials, t['photo_path'])}
+                        <div><div style="font-weight:700;color:var(--ss-primary-dark);">{t['name']}</div>
+                        <div style="font-size:0.8rem;color:var(--ss-text-muted);">{t['category']} &middot; {region}</div>
+                        </div></div>""",
+                    unsafe_allow_html=True,
+                )
+                st.write(t["note"])
+                speak_button(
+                    f"{t['name']}, a {t['category'].lower()} of the North Eastern Region. {t['note']}",
+                    key=f"voice_trad_{key_suffix}_{t['id']}",
+                )
+
+    if editable:
+        with st.expander("+ Add a tradition (name & photo)"):
+            with st.form(f"add_tradition_form_{key_suffix}", clear_on_submit=True):
+                name = st.text_input("Name (e.g. Bihu Dance, Gamosa)", key=f"trad_name_{key_suffix}")
+                category = st.selectbox("Category", TRADITION_CATEGORIES, key=f"trad_cat_{key_suffix}")
+                state_codes = [""] + list(db.STATES.keys())
+                tradition_state = st.selectbox(
+                    "State this belongs to",
+                    state_codes,
+                    format_func=lambda c: "All states (generic)" if c == "" else db.STATES[c],
+                    key=f"trad_state_{key_suffix}",
+                    help="A patient's own state shows in their 'Know Your Roots' game first, "
+                         "regardless of their UI language. Pick 'All states' if it isn't tied "
+                         "to one specific NER state.",
+                )
+                note = st.text_area("A short note about it", "", key=f"trad_note_{key_suffix}")
+                photo = st.file_uploader("Photo (optional)", type=["jpg", "jpeg", "png"], key=f"trad_photo_{key_suffix}")
+                if st.form_submit_button("Save"):
+                    if name:
+                        try:
+                            photo_path = db.save_uploaded_photo(photo.getvalue(), photo.name) if photo else None
+                        except ValueError as e:
+                            st.error(str(e))
+                        else:
+                            db.add_tradition(name, category, note, photo_path, tradition_state)
+                            st.success("Saved 💛")
+                            st.rerun()
+                    else:
+                        st.warning("Please enter a name.")
 
 
 def render_memory_box(patient):
@@ -956,7 +1086,7 @@ def render_patient(patient):
         "games_menu": render_games_menu,
         "game_memory": render_game_memory,
         "game_pattern": render_game_pattern,
-        "game_family": render_game_family,
+        "game_traditions": render_game_traditions,
         "memory_box": render_memory_box,
         "reminders": render_reminders,
     }
@@ -998,7 +1128,7 @@ def run():
     render_sidebar(patients)
     patient = current_patient(patients)
 
-    if ss.role == "Caregiver":
+    if ss.role in ("Caregiver", "Family Member"):
         render_caregiver(patient)
     else:
         render_patient(patient)
