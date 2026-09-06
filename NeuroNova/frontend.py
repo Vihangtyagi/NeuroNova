@@ -103,25 +103,33 @@ def current_patient(patients):
     return next(p for p in patients if p["id"] == ss.patient_id)
 
 
-def adjust_difficulty(score):
-    """Auto-tune difficulty from a just-finished session's score (0-100 scale,
-    the same score already logged to game_scores for the caregiver dashboard).
+def adjust_difficulty(score, patient_id):
+    """ML-driven difficulty adjustment: combines the just-finished session's
+    score (0-100, the same score already logged to game_scores) with the
+    patient's longer-term trend from cognitive_ai.analyze_trend() -- the
+    same least-squares regression over score history that powers the
+    caregiver dashboard's trend chart. Using the fitted slope (not just one
+    session in isolation) means a single lucky or unlucky session can't
+    override an established trend, and a level-up requires genuine,
+    sustained improvement rather than one easy round.
 
-    Criterion: score >= 80 counts as "cleared easily" and steps up one level
-    (Easy -> Medium -> Hard); score <= 40 counts as "struggling" and steps
-    down one level. Anything in between (41-79) is a normal, appropriately
-    challenged session, so the level holds. Already-Hard sessions can't step
-    up further, and already-Easy sessions can't step down further.
+    Criterion: score >= 80 AND the trend isn't declining steps up one level
+    (Easy -> Medium -> Hard). score <= 40 OR a clearly declining trend
+    (slope <= -1.5, the same threshold analyze_trend uses for "High risk")
+    steps down one level. Already-Hard sessions can't step up further, and
+    already-Easy sessions can't step down further.
 
-    
-    Returns "up", "down", or None (no change) so callers can tell the patient
-    what happened and why.
+    Returns "up", "down", or None (no change) so callers can tell the
+    patient what happened and why.
     """
     idx = DIFFICULTIES.index(ss.difficulty)
-    if score >= 80 and idx < len(DIFFICULTIES) - 1:
+    trend = cognitive_ai.analyze_trend(db.get_scores(patient_id, days=21))
+    slope = trend["slope_per_day"] if trend["has_data"] else 0.0
+
+    if score >= 80 and slope >= -0.3 and idx < len(DIFFICULTIES) - 1:
         ss.difficulty = DIFFICULTIES[idx + 1]
         return "up"
-    if score <= 40 and idx > 0:
+    if (score <= 40 or slope <= -1.5) and idx > 0:
         ss.difficulty = DIFFICULTIES[idx - 1]
         return "down"
     return None
@@ -673,8 +681,10 @@ def render_games_menu(patient):
 
     ss.setdefault("difficulty", "Medium")
     st.caption(
-        f"Current difficulty: **{ss.difficulty}** — adjusts itself after every round "
-        "(score 80%+ moves up a level, 40% or below eases back down)."
+        f"Current difficulty: **{ss.difficulty}** — adjusts itself after every round, "
+        "weighing both this session's score and the patient's longer-term trend "
+        "(the same regression model behind the caregiver dashboard), so a single "
+        "lucky or unlucky session can't override an established trend."
     )
     st.write("")
 
@@ -782,7 +792,7 @@ def render_game_memory(patient):
         if not ss.mm_logged:
             db.log_game_score(patient["id"], "memory_match", score)
             ss.mm_logged = True
-            change = adjust_difficulty(score)
+            change = adjust_difficulty(score, patient["id"])
             if change == "up":
                 st.info(f"🔼 Score {score:.0f}% — that was easy! Moving up to **{ss.difficulty}** next round.")
             elif change == "down":
@@ -838,7 +848,7 @@ def render_game_pattern(patient):
                         score = min(100, ss.pr_best * 15)
                         if ss.pr_best > 0:
                             db.log_game_score(patient["id"], "pattern_recall", score)
-                        change = adjust_difficulty(score)
+                        change = adjust_difficulty(score, patient["id"])
                         ss.pr_num_pads = PR_PADS[ss.difficulty]
                         if change == "up":
                             st.session_state["pr_msg"] = (
