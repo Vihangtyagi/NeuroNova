@@ -62,7 +62,11 @@ PADS = ["Tea Garden", "Muga Silk", "River Boat", "Bihu Drum", "Bamboo Grove", "H
 DIFFICULTIES = ["Easy", "Medium", "Hard"]
 MM_PAIRS = {"Easy": 3, "Medium": 6, "Hard": 8}
 PR_PADS = {"Easy": 2, "Medium": 4, "Hard": 6}
-TM_CHOICES = {"Easy": 2, "Medium": 3, "Hard": 4}
+# Know Your Roots doesn't scale with the shared difficulty level -- each
+# state's curated set is intentionally small (3 items), so "harder" would
+# just mean re-showing the same pool with no real change. Always offer up
+# to this many choices instead.
+TM_FIXED_CHOICES = 4
 
 ss = st.session_state
 
@@ -732,7 +736,7 @@ def render_games_menu(patient):
             else:
                 queue = list(traditions)
                 random.shuffle(queue)
-                ss.tm_num_choices = min(TM_CHOICES[ss.difficulty], len(traditions))
+                ss.tm_num_choices = min(TM_FIXED_CHOICES, len(traditions))
                 ss.tm_queue, ss.tm_index, ss.tm_answered, ss.tm_chosen, ss.tm_correct = queue, 0, False, None, 0
                 goto("game_traditions")
 
@@ -865,14 +869,9 @@ def render_game_traditions(patient):
         if not ss.get("tm_logged"):
             db.log_game_score(patient["id"], "traditions_match", score)
             ss.tm_logged = True
-            change = adjust_difficulty(score)
-            if change == "up":
-                st.info(f"🔼 Score {score:.0f}% — that was easy! Moving up to **{ss.difficulty}** next round.")
-            elif change == "down":
-                st.info(f"🔽 Score {score:.0f}% — let's ease off to **{ss.difficulty}** next round.")
         if st.button("Play again"):
             random.shuffle(queue)
-            ss.tm_num_choices = min(TM_CHOICES[ss.difficulty], len(queue))
+            ss.tm_num_choices = min(TM_FIXED_CHOICES, len(queue))
             ss.tm_index, ss.tm_answered, ss.tm_chosen, ss.tm_correct, ss.tm_logged = 0, False, None, 0, False
             st.rerun()
     else:
