@@ -352,7 +352,7 @@ def render_login(patients):
             name = st.selectbox("Patient name", patient_names)
             pin = st.text_input("PIN", type="password", max_chars=6)
             role_choice = st.radio(
-                "Continue as", ["Patient", "Caregiver", "Family Member"], horizontal=True
+                "Continue as", ["Patient", "Caregiver"], horizontal=True
             )
             submitted = st.form_submit_button("Enter", use_container_width=True)
 
@@ -367,8 +367,6 @@ def render_login(patients):
                 st.rerun()
             else:
                 st.error("Incorrect PIN. Please try again.")
-
-        st.caption("Demo PIN for every profile: 1234")
 
         with st.expander("Forgot PIN?"):
             st.caption(
@@ -1127,7 +1125,7 @@ def run():
     render_sidebar(patients)
     patient = current_patient(patients)
 
-    if ss.role in ("Caregiver", "Family Member"):
+    if ss.role == "Caregiver":
         render_caregiver(patient)
     else:
         render_patient(patient)
