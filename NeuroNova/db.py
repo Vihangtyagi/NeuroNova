@@ -34,8 +34,8 @@ LANGUAGES = {
 # patients.state and traditions.language -- this is what actually drives
 # "Know Your Roots" content, independent of the UI language above. Content
 # only exists for assam/meghalaya/manipur so far (see DEMO_TRADITIONS);
-# the rest fall back gracefully to the full mixed set until content is
-# added for them.
+# see get_traditions_for_state() for what a patient from any other state
+# sees until content is added for them.
 STATES = {
     "assam": "Assam",
     "arunachal_pradesh": "Arunachal Pradesh",

@@ -4,9 +4,9 @@
 Dementia Patients in the North Eastern Region (NER)**
 
 A real, running Python prototype — not a mockup. SQLite-backed data,
-a genuine linear-regression "AI" trend-detection engine, offline
-text-to-speech, and a Streamlit UI for both the patient and the
-caregiver view.
+a genuine scikit-learn Random Forest trend-classification engine,
+offline text-to-speech, and a Streamlit UI for both the patient and
+the caregiver view.
 
 ## What's actually working here
 
@@ -22,11 +22,16 @@ caregiver view.
   exists for Assam, Meghalaya and Manipur so far; other states show a
   clear "not enough content yet" message rather than a mismatched
   culture — see [Adding tradition photos](#adding-tradition-photos).
-- **`cognitive_ai.py`** — fits a least-squares trend line (numpy) over a
-  patient's daily average game score, flags **Improving / Stable /
-  Declining** with a **Low/Medium/High** risk level, and produces a
-  plain-language recommendation. Transparent and swappable for a
-  heavier model later (e.g. LSTM over multi-modal signals) without
+- **`cognitive_ai.py`** — engineers features from a patient's daily
+  average game score (least-squares trend slope, recent-vs-earlier
+  average, day-to-day volatility) and feeds them into a **scikit-learn
+  Random Forest classifier**, trained at startup on simulated patient
+  trajectories and validated on a held-out split (accuracy exposed as
+  `MODEL_ACCURACY`/`MODEL_INFO` for callers to surface). Classifies
+  **Improving / Stable / Declining** with a **Low/Medium/High** risk
+  level, a plain-language recommendation, and a confidence score, and
+  the same model drives in-game adaptive difficulty. Swappable for
+  real logged multi-patient history once enough exists, without
   touching the app code — same input/output contract.
 - **Offline voice** (`voice.py`) — uses the `espeak-ng` system binary
   (no internet, no API key) to read reminders, family messages, and
@@ -37,11 +42,10 @@ caregiver view.
   PDF report for doctor/PHC visits, and an editable Traditions & Culture
   gallery — switchable across multiple demo patient profiles (Assam /
   Meghalaya / Manipur).
-- **PIN login with 3 roles** — Patient, Caregiver (full edit access),
-  and Family Member (same visibility as the caregiver dashboard, but
-  read-only — no adding reminders, family members, traditions, or
-  patient photos). PINs are salted and hashed (sha256) before storage,
-  never kept in plain text.
+- **PIN login with 2 roles** — Patient, and Caregiver (full dashboard
+  access: reminders, family members, traditions, and patient photos).
+  PINs are salted and hashed (sha256) before storage, never kept in
+  plain text.
 - **Offline patient registration and PIN recovery** — a "+ Register a
   new patient" form on the login screen lets a caregiver onboard a new
   patient on the spot: name, village, preferred language, **state**
@@ -118,13 +122,15 @@ sees exactly **3 recognition questions from their own state** in
 "Know Your Roots" — e.g. Ratan Bora (Assam) only ever gets the 3 Assam
 items, regardless of his UI language.
 
-Scoped to just the 3 demo patients' states for now — 9 photos:
+Scoped to just the 3 demo patients' states — 9 traditions defined in
+`DEMO_TRADITIONS`, but only Assam's 3 have a committed photo so far;
+Meghalaya's and Manipur's 6 still need theirs added the same way:
 
 ```
-Assam - Ratan Bora                Meghalaya - Ma Kiimi Lyngdoh       Manipur - L. Ibemhal Singh
-  bihu_dance.jpg                    khasi_jainsem.jpg                   eromba.jpg
-  gamosa.jpg                        nongkrem_dance.jpg                  raas_leela.jpg
-  muga_silk.jpg                     jadoh.jpg                           phanek.jpg
+Assam - Ratan Bora (done)         Meghalaya - Ma Kiimi Lyngdoh       Manipur - L. Ibemhal Singh
+  bihu_dance.jpg    ✅               khasi_jainsem.jpg   ⬜               eromba.jpg      ⬜
+  gamosa.jpg        ✅               nongkrem_dance.jpg  ⬜               raas_leela.jpg  ⬜
+  muga_silk.jpg     ✅               jadoh.jpg           ⬜               phanek.jpg      ⬜
 ```
 
 To add a new state, add 3 tuples to `DEMO_TRADITIONS` in `db.py`
@@ -146,19 +152,23 @@ live demo, but treat it as temporary until the photo is committed.
 
 ## Where this goes next (beyond this prototype)
 
-- **Offline-capable app** — today this is a live Streamlit Cloud web
-  app; it needs a live connection to work at all. A true offline mode
-  (local-first storage + sync) for low-connectivity NER areas is the
-  single biggest gap against the problem statement and the right next
-  investment.
+- **Package the local deployment** — the app itself makes zero external
+  network calls (SQLite storage, `espeak-ng` for offline TTS, no cloud
+  AI calls), so it already runs with no internet connection when
+  installed locally; today's Streamlit Cloud hosting is a demo
+  convenience, not an architectural requirement. For real NER
+  deployment this should ship as a local install (tablet/laptop) rather
+  than depend on a hosted URL — a true local-first sync layer for
+  multi-device/multi-caregiver use is the next step beyond that.
 - **Voice *input*, not just output** — `voice.py` only reads text
   aloud today; adding speech-to-text would let low-literacy patients
   navigate by voice instead of tapping.
 - Native-speaker review of the Khasi, Bodo, Manipuri and Mizo UI
   translations (currently AI-assisted drafts).
-- Replace the synthetic seed history with real logged sessions, and
-  swap the linear-trend model for a proper time-series model once
-  enough longitudinal data exists per patient.
+- Replace the synthetic training/seed data with real logged multi-patient
+  history once enough longitudinal data exists, and retrain/upgrade the
+  Random Forest classifier (or move to a time-series model) on that real
+  data instead of simulated trajectories.
 - Move from SQLite to a proper multi-tenant backend for real
   multi-caregiver / hospital deployment.
 - **Encrypt the SQLite file at rest** (e.g. SQLCipher). PINs are

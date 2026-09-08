@@ -62,6 +62,8 @@ PADS = ["Tea Garden", "Muga Silk", "River Boat", "Bihu Drum", "Bamboo Grove", "H
 DIFFICULTIES = ["Easy", "Medium", "Hard"]
 MM_PAIRS = {"Easy": 3, "Medium": 6, "Hard": 8}
 PR_PADS = {"Easy": 2, "Medium": 4, "Hard": 6}
+STRONG_SESSION_SCORE = 80  # a session this good only counts toward leveling up if the AI agrees the trend supports it
+WEAK_SESSION_SCORE = 40    # a session this weak always eases the level back down, regardless of the AI's trend read
 # Know Your Roots doesn't scale with the shared difficulty level -- each
 # state's curated set is intentionally small (3 items), so "harder" would
 # just mean re-showing the same pool with no real change. Always offer up
@@ -104,32 +106,33 @@ def current_patient(patients):
 
 
 def adjust_difficulty(score, patient_id):
-    """ML-driven difficulty adjustment: combines the just-finished session's
-    score (0-100, the same score already logged to game_scores) with the
-    patient's longer-term trend from cognitive_ai.analyze_trend() -- the
-    same least-squares regression over score history that powers the
-    caregiver dashboard's trend chart. Using the fitted slope (not just one
-    session in isolation) means a single lucky or unlucky session can't
-    override an established trend, and a level-up requires genuine,
-    sustained improvement rather than one easy round.
+    """ML-driven difficulty adjustment.
 
-    Criterion: score >= 80 AND the trend isn't declining steps up one level
-    (Easy -> Medium -> Hard). score <= 40 OR a clearly declining trend
-    (slope <= -1.5, the same threshold analyze_trend uses for "High risk")
-    steps down one level. Already-Hard sessions can't step up further, and
-    already-Easy sessions can't step down further.
+    A single session score is a noisy signal -- a patient can have one
+    lucky guess-heavy round or one off day that says nothing about their
+    real cognitive trajectory. So instead of reacting to that one number
+    alone, this asks cognitive_ai's trained classifier (a Random Forest
+    over trend slope, recent-vs-earlier average, and volatility -- see
+    cognitive_ai.MODEL_INFO) what it believes the patient's underlying
+    trend actually is, and lets that classification arbitrate: a strong
+    session only earns a level-up if the model doesn't see a decline
+    underneath it, and a High-risk classification eases the level back
+    down even off a merely mediocre session. The same model call backs
+    the caregiver dashboard's risk banner, so the patient's in-game
+    experience and the caregiver's alerts are always reading off one
+    consistent AI judgment, not two different heuristics.
 
     Returns "up", "down", or None (no change) so callers can tell the
     patient what happened and why.
     """
     idx = DIFFICULTIES.index(ss.difficulty)
     trend = cognitive_ai.analyze_trend(db.get_scores(patient_id, days=21))
-    slope = trend["slope_per_day"] if trend["has_data"] else 0.0
+    risk = trend["risk"] if trend["has_data"] else "Low"
 
-    if score >= 80 and slope >= -0.3 and idx < len(DIFFICULTIES) - 1:
+    if score >= STRONG_SESSION_SCORE and risk == "Low" and idx < len(DIFFICULTIES) - 1:
         ss.difficulty = DIFFICULTIES[idx + 1]
         return "up"
-    if (score <= 40 or slope <= -1.5) and idx > 0:
+    if (score <= WEAK_SESSION_SCORE or risk == "High") and idx > 0:
         ss.difficulty = DIFFICULTIES[idx - 1]
         return "down"
     return None
@@ -502,9 +505,6 @@ def render_sidebar(patients):
 
 
 def render_caregiver(patient):
-    is_caregiver = ss.role == "Caregiver"
-    if not is_caregiver:
-        st.caption("👀 Read-only family view — ask the caregiver to add or edit entries.")
     st.markdown(
         f"""
         <div style="display:flex;align-items:center;gap:0.9rem;margin-bottom:0.3rem;">
@@ -608,15 +608,14 @@ def render_caregiver(patient):
             with rc2:
                 status = "Done ✅" if r["done"] else "Pending ⏳"
                 st.markdown(f"**{r['time_str']}** — {r['task']}  \n_{r['type']} · {status}_")
-    if is_caregiver:
-        render_add_reminder_form(patient["id"], key_suffix="caregiver")
+    render_add_reminder_form(patient["id"], key_suffix="caregiver")
 
     st.subheader("Family & Memory Box")
-    render_family_gallery(patient, key_suffix="caregiver", editable=is_caregiver)
+    render_family_gallery(patient, key_suffix="caregiver")
 
     st.subheader("Traditions & Culture Gallery")
     st.caption("Curate the North East festivals, dance, attire, food and crafts used in the 'Know Your Roots' game.")
-    render_traditions_gallery(key_suffix="caregiver", editable=is_caregiver)
+    render_traditions_gallery(key_suffix="caregiver")
 
     st.info("🌐 Interface supports English, Assamese, Khasi, Bodo, Manipuri and Mizo — "
             "built for accessibility across the North Eastern Region. Non-English labels beyond "
@@ -681,10 +680,9 @@ def render_games_menu(patient):
 
     ss.setdefault("difficulty", "Medium")
     st.caption(
-        f"Current difficulty: **{ss.difficulty}** — adjusts itself after every round, "
-        "weighing both this session's score and the patient's longer-term trend "
-        "(the same regression model behind the caregiver dashboard), so a single "
-        "lucky or unlucky session can't override an established trend."
+        f"Current difficulty: **{ss.difficulty}** — an AI model reads each patient's "
+        "cognitive trend after every round and tunes the challenge to match it, so "
+        "the games stay just hard enough to engage without ever feeling defeating."
     )
     st.write("")
 
@@ -938,13 +936,11 @@ def render_game_traditions(patient):
                 st.rerun()
 
 
-def render_family_gallery(patient, key_suffix="", editable=True):
+def render_family_gallery(patient, key_suffix=""):
     """Shared family/memory-box gallery: photo + name + relation + note for
     each family member, plus a form to add a new one (with optional photo
     upload). Used on both the patient's Memory Box and the caregiver
-    dashboard so either side can see and add real family photos. The
-    add-form is hidden when editable=False (e.g. a read-only Family Member
-    login on the caregiver dashboard)."""
+    dashboard so either side can see and add real family photos."""
     family = db.get_family(patient["id"])
     cols = st.columns(2)
     for i, p in enumerate(family):
@@ -964,36 +960,34 @@ def render_family_gallery(patient, key_suffix="", editable=True):
                     key=f"voice_{key_suffix}_{p['id']}",
                 )
 
-    if editable:
-        with st.expander("+ Add a family member (name & photo)"):
-            with st.form(f"add_person_form_{key_suffix}", clear_on_submit=True):
-                name = st.text_input("Name", key=f"fam_name_{key_suffix}")
-                relation = st.text_input("Relation (e.g. Son, Neighbour)", key=f"fam_rel_{key_suffix}")
-                note = st.text_area("A short note to help remember them", "", key=f"fam_note_{key_suffix}")
-                photo = st.file_uploader("Photo (optional)", type=["jpg", "jpeg", "png"], key=f"fam_photo_{key_suffix}")
-                if st.form_submit_button("Save"):
-                    if name and relation:
-                        try:
-                            photo_path = db.save_uploaded_photo(photo.getvalue(), photo.name) if photo else None
-                        except ValueError as e:
-                            st.error(str(e))
-                        else:
-                            db.add_family_member(patient["id"], name, relation, note, photo_path)
-                            st.success("Saved 💛")
-                            st.rerun()
+    with st.expander("+ Add a family member (name & photo)"):
+        with st.form(f"add_person_form_{key_suffix}", clear_on_submit=True):
+            name = st.text_input("Name", key=f"fam_name_{key_suffix}")
+            relation = st.text_input("Relation (e.g. Son, Neighbour)", key=f"fam_rel_{key_suffix}")
+            note = st.text_area("A short note to help remember them", "", key=f"fam_note_{key_suffix}")
+            photo = st.file_uploader("Photo (optional)", type=["jpg", "jpeg", "png"], key=f"fam_photo_{key_suffix}")
+            if st.form_submit_button("Save"):
+                if name and relation:
+                    try:
+                        photo_path = db.save_uploaded_photo(photo.getvalue(), photo.name) if photo else None
+                    except ValueError as e:
+                        st.error(str(e))
                     else:
-                        st.warning("Please enter both a name and relation.")
+                        db.add_family_member(patient["id"], name, relation, note, photo_path)
+                        st.success("Saved 💛")
+                        st.rerun()
+                else:
+                    st.warning("Please enter both a name and relation.")
 
 
 TRADITION_CATEGORIES = ["Festival", "Dance", "Attire", "Food", "Instrument", "Craft", "Other"]
 
 
-def render_traditions_gallery(key_suffix="", editable=True):
+def render_traditions_gallery(key_suffix=""):
     """Shared, patient-independent gallery of traditional North East items
     (festivals, dance, attire, food, crafts) with photo + name + note, plus
     a form to add a new one. Powers the 'Know Your Roots' game and is
-    curated by caregivers rather than by patients. The add-form is hidden
-    when editable=False (e.g. a read-only Family Member login)."""
+    curated by caregivers rather than by patients."""
     traditions = db.get_traditions()
     cols = st.columns(2)
     for i, t in enumerate(traditions):
@@ -1015,35 +1009,34 @@ def render_traditions_gallery(key_suffix="", editable=True):
                     key=f"voice_trad_{key_suffix}_{t['id']}",
                 )
 
-    if editable:
-        with st.expander("+ Add a tradition (name & photo)"):
-            with st.form(f"add_tradition_form_{key_suffix}", clear_on_submit=True):
-                name = st.text_input("Name (e.g. Bihu Dance, Gamosa)", key=f"trad_name_{key_suffix}")
-                category = st.selectbox("Category", TRADITION_CATEGORIES, key=f"trad_cat_{key_suffix}")
-                state_codes = [""] + list(db.STATES.keys())
-                tradition_state = st.selectbox(
-                    "State this belongs to",
-                    state_codes,
-                    format_func=lambda c: "All states (generic)" if c == "" else db.STATES[c],
-                    key=f"trad_state_{key_suffix}",
-                    help="A patient's own state shows in their 'Know Your Roots' game first, "
-                         "regardless of their UI language. Pick 'All states' if it isn't tied "
-                         "to one specific NER state.",
-                )
-                note = st.text_area("A short note about it", "", key=f"trad_note_{key_suffix}")
-                photo = st.file_uploader("Photo (optional)", type=["jpg", "jpeg", "png"], key=f"trad_photo_{key_suffix}")
-                if st.form_submit_button("Save"):
-                    if name:
-                        try:
-                            photo_path = db.save_uploaded_photo(photo.getvalue(), photo.name) if photo else None
-                        except ValueError as e:
-                            st.error(str(e))
-                        else:
-                            db.add_tradition(name, category, note, photo_path, tradition_state)
-                            st.success("Saved 💛")
-                            st.rerun()
+    with st.expander("+ Add a tradition (name & photo)"):
+        with st.form(f"add_tradition_form_{key_suffix}", clear_on_submit=True):
+            name = st.text_input("Name (e.g. Bihu Dance, Gamosa)", key=f"trad_name_{key_suffix}")
+            category = st.selectbox("Category", TRADITION_CATEGORIES, key=f"trad_cat_{key_suffix}")
+            state_codes = [""] + list(db.STATES.keys())
+            tradition_state = st.selectbox(
+                "State this belongs to",
+                state_codes,
+                format_func=lambda c: "All states (generic)" if c == "" else db.STATES[c],
+                key=f"trad_state_{key_suffix}",
+                help="A patient's own state shows in their 'Know Your Roots' game first, "
+                     "regardless of their UI language. Pick 'All states' if it isn't tied "
+                     "to one specific NER state.",
+            )
+            note = st.text_area("A short note about it", "", key=f"trad_note_{key_suffix}")
+            photo = st.file_uploader("Photo (optional)", type=["jpg", "jpeg", "png"], key=f"trad_photo_{key_suffix}")
+            if st.form_submit_button("Save"):
+                if name:
+                    try:
+                        photo_path = db.save_uploaded_photo(photo.getvalue(), photo.name) if photo else None
+                    except ValueError as e:
+                        st.error(str(e))
                     else:
-                        st.warning("Please enter a name.")
+                        db.add_tradition(name, category, note, photo_path, tradition_state)
+                        st.success("Saved 💛")
+                        st.rerun()
+                else:
+                    st.warning("Please enter a name.")
 
 
 def render_memory_box(patient):
