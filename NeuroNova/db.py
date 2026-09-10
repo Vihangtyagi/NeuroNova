@@ -12,9 +12,52 @@ import secrets
 import hashlib
 import uuid
 from datetime import datetime, timedelta
+from cryptography.fernet import Fernet, InvalidToken
 
 DB_PATH = os.path.join(os.path.dirname(__file__), "NeuroNova.db")
 PHOTOS_DIR = os.path.join(os.path.dirname(__file__), "photos")
+
+# Local-only key for encrypting sensitive free-text fields at rest (patient
+# name/village, family notes, reminder tasks) -- generated once on first run
+# and never committed (see .gitignore). This is field-level encryption done
+# in the app layer rather than whole-database encryption (e.g. SQLCipher),
+# because SQLCipher's Python bindings don't ship a wheel for every Python
+# version -- this approach needs nothing beyond the pure-Python
+# `cryptography` package, so it works everywhere without extra install steps.
+_KEY_PATH = os.path.join(os.path.dirname(__file__), "db_secret.key")
+
+
+def _load_or_create_key():
+    if os.path.exists(_KEY_PATH):
+        with open(_KEY_PATH, "rb") as f:
+            return f.read()
+    key = Fernet.generate_key()
+    with open(_KEY_PATH, "wb") as f:
+        f.write(key)
+    return key
+
+
+_FERNET = Fernet(_load_or_create_key())
+
+
+def _enc(text):
+    """Encrypt a plain-text field before it's written to SQLite. None/empty
+    values pass through untouched -- nothing sensitive to protect there."""
+    if not text:
+        return text
+    return _FERNET.encrypt(text.encode()).decode()
+
+
+def _dec(token):
+    """Decrypt a field read back from SQLite. Falls back to returning the
+    raw value on failure (e.g. empty/None, or a pre-encryption legacy row)
+    rather than raising, since a display glitch is far better than a crash."""
+    if not token:
+        return token
+    try:
+        return _FERNET.decrypt(token.encode()).decode()
+    except (InvalidToken, ValueError):
+        return token
 
 # Languages supported for a patient's preferred language, keyed by the code
 # stored in patients.language. Native names included for display purposes.
@@ -421,7 +464,7 @@ def _seed_demo_data(conn):
     ]
     cur.executemany(
         "INSERT INTO patients (name, age, village, language, photo_path) VALUES (?, ?, ?, ?, ?)",
-        patients,
+        [(_enc(name), age, _enc(village), lang, photo) for name, age, village, lang, photo in patients],
     )
     conn.commit()
 
@@ -450,7 +493,7 @@ def _seed_demo_data(conn):
             cur.execute(
                 "INSERT INTO family_members (patient_id, name, relation, initials, last_contact, note, photo_path) "
                 "VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (pid, name, relation, initials, last, note, photo_path),
+                (pid, _enc(name), relation, initials, last, _enc(note), photo_path),
             )
     conn.commit()
 
@@ -480,7 +523,7 @@ def _seed_demo_data(conn):
             cur.execute(
                 "INSERT INTO reminders (patient_id, time_str, task, type, icon, done, reminder_date) "
                 "VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (pid, time_str, task, rtype, icon, done, today),
+                (pid, time_str, _enc(task), rtype, icon, done, today),
             )
     conn.commit()
 
@@ -598,7 +641,11 @@ def get_patients():
     conn = get_conn()
     rows = conn.execute("SELECT * FROM patients ORDER BY id").fetchall()
     conn.close()
-    return rows
+    patients = [dict(r) for r in rows]
+    for p in patients:
+        p["name"] = _dec(p["name"])
+        p["village"] = _dec(p["village"])
+    return patients
 
 
 def add_patient(name, age, village, language, state, pin, photo_path=None):
@@ -613,7 +660,7 @@ def add_patient(name, age, village, language, state, pin, photo_path=None):
     cur = conn.execute(
         "INSERT INTO patients (name, age, village, language, state, pin, pin_salt, photo_path) "
         "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-        (name, age, village, language, state, _hash_pin(pin, salt), salt, photo_path),
+        (_enc(name), age, _enc(village), language, state, _hash_pin(pin, salt), salt, photo_path),
     )
     conn.commit()
     new_id = cur.lastrowid
@@ -673,7 +720,11 @@ def get_family(patient_id):
         "SELECT * FROM family_members WHERE patient_id = ? ORDER BY id", (patient_id,)
     ).fetchall()
     conn.close()
-    return rows
+    family = [dict(r) for r in rows]
+    for f in family:
+        f["name"] = _dec(f["name"])
+        f["note"] = _dec(f["note"])
+    return family
 
 
 def get_traditions():
@@ -719,7 +770,8 @@ def add_family_member(patient_id, name, relation, note="", photo_path=None):
     conn.execute(
         "INSERT INTO family_members (patient_id, name, relation, initials, last_contact, note, photo_path) "
         "VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (patient_id, name, relation, initials, "Added just now", note or "A cherished person in your life.", photo_path),
+        (patient_id, _enc(name), relation, initials, "Added just now",
+         _enc(note or "A cherished person in your life."), photo_path),
     )
     conn.commit()
     conn.close()
@@ -779,7 +831,10 @@ def get_reminders(patient_id, date_str=None):
     if not rows:
         rows = _roll_reminders_forward(conn, patient_id, date_str)
     conn.close()
-    return rows
+    reminders = [dict(r) for r in rows]
+    for r in reminders:
+        r["task"] = _dec(r["task"])
+    return reminders
 
 
 def _roll_reminders_forward(conn, patient_id, date_str):
@@ -827,7 +882,7 @@ def add_reminder(patient_id, time_str, task, rtype="Custom", icon="📌"):
     conn.execute(
         "INSERT INTO reminders (patient_id, time_str, task, type, icon, done, reminder_date) "
         "VALUES (?, ?, ?, ?, ?, 0, ?)",
-        (patient_id, time_str, task, rtype, icon, today),
+        (patient_id, time_str, _enc(task), rtype, icon, today),
     )
     conn.commit()
     conn.close()
