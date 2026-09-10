@@ -46,6 +46,11 @@ the caregiver view.
   access: reminders, family members, traditions, and patient photos).
   PINs are salted and hashed (sha256) before storage, never kept in
   plain text.
+- **Encrypted at rest** — patient name/village, family member names/
+  notes, and reminder tasks are encrypted (Fernet, via the
+  `cryptography` package) before ever touching `NeuroNova.db`, and
+  decrypted only in memory when read. The key lives in a local,
+  gitignored `db_secret.key`, generated on first run.
 - **Offline patient registration and PIN recovery** — a "+ Register a
   new patient" form on the login screen lets a caregiver onboard a new
   patient on the spot: name, village, preferred language, **state**
@@ -87,7 +92,10 @@ The database seeds itself automatically on first run with 3 demo
 patients, their families, today's reminders, and 21 days of synthetic
 game-history (deliberately shaped so one patient trends down, one is
 stable, one trends up — so the AI dashboard has something real to show
-on day one). Delete `NeuroNova.db` any time to reseed from scratch.
+on day one). Delete `NeuroNova.db` any time to reseed from scratch —
+but leave `db_secret.key` alone unless you're also deleting the
+database, since encrypted fields in an existing `NeuroNova.db` can
+only be read back with the same key that wrote them.
 
 ## Project structure
 
@@ -171,7 +179,6 @@ live demo, but treat it as temporary until the photo is committed.
   data instead of simulated trajectories.
 - Move from SQLite to a proper multi-tenant backend for real
   multi-caregiver / hospital deployment.
-- **Encrypt the SQLite file at rest** (e.g. SQLCipher). PINs are
-  already hashed, but the rest of `NeuroNova.db` (names, villages,
-  reminders, notes) is still plain SQLite on disk — fine for this
-  prototype, not for a real deployment.
+- Move from field-level encryption (see below) to full database-file
+  encryption (e.g. SQLCipher) once its Python bindings ship a wheel
+  for whatever Python version the deployment target uses.
